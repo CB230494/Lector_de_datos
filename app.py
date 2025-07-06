@@ -3,62 +3,63 @@ import pandas as pd
 import io
 
 st.title("📊 Consolidado de Indicadores - DASHBOARD")
-st.write("Carga archivos Excel con la hoja 'DASHBOARD' desbloqueada para generar un resumen por delegación y líder estratégico.")
+st.write("Carga **uno o varios archivos Excel** con hoja 'DASHBOARD' desbloqueada para generar el resumen.")
 
-# Subida de archivo
-archivo = st.file_uploader("📁 Sube un archivo .xlsm o .xlsx", type=["xlsm", "xlsx"])
+# Subida múltiple de archivos
+archivos = st.file_uploader("📁 Sube archivos .xlsm o .xlsx", type=["xlsm", "xlsx"], accept_multiple_files=True)
 
 @st.cache_data
-def procesar_dashboard(uploaded_file):
-    try:
-        xls = pd.ExcelFile(uploaded_file, engine="openpyxl")
+def procesar_varios_dashboards(lista_archivos):
+    consolidado = []
 
-        if "DASHBOARD" not in xls.sheet_names:
-            st.error("❌ El archivo no contiene una hoja llamada 'DASHBOARD'")
-            return pd.DataFrame()
+    for archivo in lista_archivos:
+        try:
+            xls = pd.ExcelFile(archivo, engine="openpyxl")
 
-        df = pd.read_excel(xls, sheet_name="DASHBOARD", header=None, engine="openpyxl")
+            if "DASHBOARD" not in xls.sheet_names:
+                st.warning(f"⚠️ El archivo '{archivo.name}' no tiene hoja 'DASHBOARD'. Se omite.")
+                continue
 
-        delegacion = str(df.iloc[3, 1]).strip()
+            df = pd.read_excel(xls, sheet_name="DASHBOARD", header=None, engine="openpyxl")
 
-        # ✅ Leer columna 8 (índice 8) que contiene los valores enteros reales, no los porcentajes
-        gl_completos = int(df.iloc[7, 8]) if pd.notna(df.iloc[7, 8]) else 0
-        gl_con_act = int(df.iloc[8, 8]) if pd.notna(df.iloc[8, 8]) else 0
-        gl_sin_act = int(df.iloc[9, 8]) if pd.notna(df.iloc[9, 8]) else 0
+            delegacion = str(df.iloc[3, 1]).strip()
 
-        fp_completos = int(df.iloc[18, 8]) if pd.notna(df.iloc[18, 8]) else 0
-        fp_con_act = int(df.iloc[19, 8]) if pd.notna(df.iloc[19, 8]) else 0
-        fp_sin_act = int(df.iloc[20, 8]) if pd.notna(df.iloc[20, 8]) else 0
+            # Leer columna 8 (índice 8) con valores reales
+            gl_completos = int(df.iloc[7, 8]) if pd.notna(df.iloc[7, 8]) else 0
+            gl_con_act = int(df.iloc[8, 8]) if pd.notna(df.iloc[8, 8]) else 0
+            gl_sin_act = int(df.iloc[9, 8]) if pd.notna(df.iloc[9, 8]) else 0
 
-        consolidado = [
-            {
+            fp_completos = int(df.iloc[18, 8]) if pd.notna(df.iloc[18, 8]) else 0
+            fp_con_act = int(df.iloc[19, 8]) if pd.notna(df.iloc[19, 8]) else 0
+            fp_sin_act = int(df.iloc[20, 8]) if pd.notna(df.iloc[20, 8]) else 0
+
+            consolidado.append({
                 "Delegación": delegacion,
                 "Líder Estratégico": "Gobierno Local",
                 "Completados": gl_completos,
                 "Con Actividades": gl_con_act,
                 "Sin Actividades": gl_sin_act
-            },
-            {
+            })
+
+            consolidado.append({
                 "Delegación": delegacion,
                 "Líder Estratégico": "Fuerza Pública",
                 "Completados": fp_completos,
                 "Con Actividades": fp_con_act,
                 "Sin Actividades": fp_sin_act
-            }
-        ]
+            })
 
-        return pd.DataFrame(consolidado)
+        except Exception as e:
+            st.error(f"❌ Error en archivo '{archivo.name}': {e}")
 
-    except Exception as e:
-        st.error(f"❌ Error al procesar la hoja 'DASHBOARD': {e}")
-        return pd.DataFrame()
+    return pd.DataFrame(consolidado)
 
 # Procesamiento principal
-if archivo:
-    df_resultado = procesar_dashboard(archivo)
+if archivos:
+    df_resultado = procesar_varios_dashboards(archivos)
 
     if not df_resultado.empty:
-        st.success("✅ Archivo procesado correctamente.")
+        st.success("✅ Archivos procesados correctamente.")
         st.dataframe(df_resultado)
 
         # Descargar Excel
@@ -67,9 +68,9 @@ if archivo:
             df_resultado.to_excel(writer, index=False, sheet_name="Resumen")
 
         st.download_button(
-            label="📥 Descargar resumen en Excel",
+            label="📥 Descargar resumen consolidado",
             data=output.getvalue(),
-            file_name="resumen_dashboard.xlsx",
+            file_name="resumen_dashboard_consolidado.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
