@@ -5,7 +5,7 @@ import io
 st.title("📊 Consolidado de Indicadores - DASHBOARD")
 st.write("Carga archivos Excel con la hoja 'DASHBOARD' desbloqueada para generar un resumen por delegación y líder estratégico.")
 
-# Cargar archivo
+# Subida de archivo
 archivo = st.file_uploader("📁 Sube un archivo .xlsm o .xlsx", type=["xlsm", "xlsx"])
 
 @st.cache_data
@@ -21,15 +21,14 @@ def procesar_dashboard(uploaded_file):
 
         delegacion = str(df.iloc[3, 1]).strip()
 
-        # Gobierno Local
-        gl_completos = int(df.iloc[7, 7]) if pd.notna(df.iloc[7, 7]) else 0
-        gl_con_act = int(df.iloc[8, 7]) if pd.notna(df.iloc[8, 7]) else 0
-        gl_sin_act = int(df.iloc[9, 7]) if pd.notna(df.iloc[9, 7]) else 0
+        # ✅ Leer columna 8 (índice 8) que contiene los valores enteros reales, no los porcentajes
+        gl_completos = int(df.iloc[7, 8]) if pd.notna(df.iloc[7, 8]) else 0
+        gl_con_act = int(df.iloc[8, 8]) if pd.notna(df.iloc[8, 8]) else 0
+        gl_sin_act = int(df.iloc[9, 8]) if pd.notna(df.iloc[9, 8]) else 0
 
-        # Fuerza Pública
-        fp_completos = int(df.iloc[18, 7]) if pd.notna(df.iloc[18, 7]) else 0
-        fp_con_act = int(df.iloc[19, 7]) if pd.notna(df.iloc[19, 7]) else 0
-        fp_sin_act = int(df.iloc[20, 7]) if pd.notna(df.iloc[20, 7]) else 0
+        fp_completos = int(df.iloc[18, 8]) if pd.notna(df.iloc[18, 8]) else 0
+        fp_con_act = int(df.iloc[19, 8]) if pd.notna(df.iloc[19, 8]) else 0
+        fp_sin_act = int(df.iloc[20, 8]) if pd.notna(df.iloc[20, 8]) else 0
 
         consolidado = [
             {
@@ -62,7 +61,7 @@ if archivo:
         st.success("✅ Archivo procesado correctamente.")
         st.dataframe(df_resultado)
 
-        # Botón de descarga Excel
+        # Descargar Excel
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             df_resultado.to_excel(writer, index=False, sheet_name="Resumen")
