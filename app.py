@@ -1,211 +1,244 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import io
 import re
+import unicodedata
+import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="Consolidado de Indicadores", layout="wide")
-st.title("📋 Consolidado de Indicadores - Informe de Avance")
-st.write("Carga uno o varios archivos Excel para extraer indicadores desde la hoja **'Informe de avance'**.")
+st.set_page_config(page_title="Encuesta - Consolidador y Dashboard", layout="wide")
 
-# ================= Utilidades =================
-def _s(x):
-    """Devuelve texto limpio sin espacios repetidos."""
-    return "" if pd.isna(x) else re.sub(r"\s+", " ", str(x)).strip()
+st.title("🧮 Encuesta: Unificación de respuestas y Dashboard")
+st.write("Sube 1 o varios archivos con una hoja llamada **'Hoja 1'** con las columnas: "
+         "`Timestamp, Seguridad, Preocupacion, Descripcion_Delito, Lugares_Evitados, Peticion, Fuerza_Publica`.")
 
-def _is_zeroish(val: str) -> bool:
-    """True si el valor es 0 (o 0.0, etc.)."""
-    return True if re.fullmatch(r"\s*0+(\.0+)?\s*", (val or "")) else False
+# ============== Utilidades ==============
+def _normalize_text(s: str) -> str:
+    """minúsculas, sin acentos, espacios colapsados."""
+    if pd.isna(s):
+        return ""
+    s = str(s).strip().lower()
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
+    s = re.sub(r"\s+", " ", s)
+    return s
 
-def _looks_like_header(lider: str, indicador: str, meta: str) -> bool:
-    """Detecta filas de encabezado/rótulos dentro del bloque para no incluirlas."""
-    L = (lider or "").strip().lower()
-    I = (indicador or "").strip().lower()
-    M = (meta or "").strip().lower()
-    if (L == "lider" and I == "indicadores" and M == "meta"):
-        return True
-    if I in {"indicadores", "indicador", "descripción", "descripcion", "resultados", "evidencia"}:
-        return True
-    if M == "meta":
-        return True
+def _any(text, patterns):
+    """¿Alguna keyword/patrón aparece en el texto? (buscar por palabra)."""
+    for p in patterns:
+        # palabra completa o subfrase relevante
+        if re.search(rf"\b{re.escape(p)}\b", text):
+            return True
     return False
 
-def _parse_single(df: pd.DataFrame, archivo: str) -> pd.DataFrame:
+def _first_match(text, rules):
     """
-    Parser adaptado a la plantilla observada.
-    Mapa (0‑based):
-      - Delegación -> (2,7)  [G3]
-      - N° Líneas  -> (4,7)  [G5]
-      - Por 'Línea de Acción #X' (texto en col=3):
-          Problemática -> misma fila col=5
-          Encabezado del bloque -> r0 + 3
-          Columnas datos:
-            Lider (3), Indicadores (5), Meta (7)
-            Resultados T1 (13), Resultados T2 (19)
+    Devuelve el primer descriptor cuya lista de keywords haga match.
+    'rules' es una lista de tuplas (descriptor, [keywords...]) evaluadas en orden.
     """
-    out_rows = []
+    for label, keywords in rules:
+        if _any(text, keywords):
+            return label
+    return "otro"
 
-    # Delegación y número de líneas
-    delegacion = _s(df.iat[2, 7]) if df.shape[0] > 2 and df.shape[1] > 7 else ""
-    try:
-        num_lineas = int(float(_s(df.iat[4, 7])))
-    except Exception:
-        num_lineas = 0
+def _multi_match(text, rules):
+    """Versión multi-etiqueta (si quieres asignar más de un descriptor). No se usa por defecto."""
+    labels = [label for label, keywords in rules if _any(text, keywords)]
+    return labels if labels else ["otro"]
 
-    # Localizar líneas de acción
-    line_rows = []
-    for r in range(df.shape[0]):
-        txt = _s(df.iat[r, 3]) if df.shape[1] > 3 else ""
-        m = re.search(r"L[ií]nea de Acci[oó]n\s*#\s*(\d+)", txt, flags=re.I)
-        if m:
-            line_rows.append((r, int(m.group(1))))
+def _save_fig_to_bytes(fig):
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight", dpi=160)
+    buf.seek(0)
+    return buf
 
-    if num_lineas > 0:
-        line_rows = [t for t in line_rows if t[1] <= num_lineas]
+def _pct_series(counts):
+    total = counts.sum()
+    if total == 0:
+        return (counts * 0), total
+    return (counts / total * 100).round(1), total
 
-    if not line_rows:
-        return pd.DataFrame(columns=[
-            "Archivo","Delegación","N° Líneas","Línea #","Problemática","Líder",
-            "Indicador","Meta","Resultados T1","Resultados T2"
-        ])
+# ============== TAXONOMÍA (EDITABLE) ==============
+# Ajusta/expande las palabras clave según tu realidad local.
+TAX_PREOCUPACION = [
+    ("robos/asaltos", ["robo", "asalt", "hurto"]),
+    ("homicidios/violencia", ["homicid", "asesin", "agresion", "violencia"]),
+    ("drogas", ["droga", "narco", "venta de droga"]),
+    ("ruidos/convivencia", ["ruido", "escandalo", "molestia"]),
+    ("iluminacion", ["luz", "ilumin", "alumbrado"]),
+    ("tránsito", ["transit", "trafico", "velocidad", "accidente"]),
+    ("pandillas", ["pandilla"]),
+    ("espacios/lotebaldio", ["lote", "baldio", "parque", "zonaverde"]),
+]
 
-    for idx, (r0, linea_num) in enumerate(line_rows):
-        r_next = line_rows[idx + 1][0] if idx + 1 < len(line_rows) else df.shape[0]
+TAX_DELITO = [
+    ("robo/asalto", ["robo", "asalt"]),
+    ("drogas", ["droga", "narco"]),
+    ("homicidio", ["homicid", "asesin"]),
+    ("vandalismo", ["vandal", "daño"]),
+    ("violencia intrafamiliar", ["intrafamiliar", "domestic"]),
+    ("otros", ["estafa", "acoso", "amenaza", "hostig"]),
+]
 
-        # Problemática
-        problema = _s(df.iat[r0, 5]) if df.shape[1] > 5 else ""
+TAX_LUGAR = [
+    ("paradas/buses", ["parada", "bus"]),
+    ("parques", ["parque"]),
+    ("lotes/zonas baldías", ["lote", "baldio"]),
+    ("barrios/residenciales", ["resid", "barrio", "urbaniz"]),
+    ("colegios/escuelas", ["colegio", "escuela"]),
+    ("comercios", ["comerc", "tienda", "super"]),
+    ("calles/avenidas", ["calle", "avenida", "ruta"]),
+    ("nocturno/madrugada", ["noche", "madrug", "6pm", "7pm", "8pm", "9pm", "10pm", "11pm", "12am"]),
+]
 
-        # Encabezado del bloque y columnas
-        header_row = r0 + 3
-        c_lider, c_ind, c_meta = 3, 5, 7
-        c_res1, c_res2 = 13, 19
+TAX_PETICION = [
+    ("mas patrullaje", ["recorrido", "patrull", "presencia", "mas policia", "presencia policial"]),
+    ("camaras/tecnologia", ["camara", "cctv", "drones", "tecnolog"]),
+    ("iluminacion", ["luz", "ilumin", "alumbrado"]),
+    ("organizacion/comunidad", ["comunal", "comunidad", "comite", "red", "vecinal"]),
+    ("intervencion social", ["social", "prevencion", "programa", "convivencia"]),
+    ("otros", ["limpieza", "basura", "semaforo", "parqueo"]),
+]
 
-        # Recorrer filas de datos del bloque
-        blank_streak = 0
-        for r in range(header_row + 1, r_next):
-            indicador = _s(df.iat[r, c_ind]) if df.shape[1] > c_ind else ""
-            lider = _s(df.iat[r, c_lider]) if df.shape[1] > c_lider else ""
-            meta = _s(df.iat[r, c_meta]) if df.shape[1] > c_meta else ""
-
-            # Si reaparece una fila de encabezados/rótulos → cortar bloque
-            if _looks_like_header(lider, indicador, meta):
-                break
-
-            # Si no hay indicador, contar vacíos y cortar tras 2 seguidos
-            if not indicador:
-                blank_streak += 1
-                if blank_streak >= 2:
-                    break
-                continue
-            blank_streak = 0
-
-            t1 = _s(df.iat[r, c_res1]) if df.shape[1] > c_res1 else ""
-            t2 = _s(df.iat[r, c_res2]) if df.shape[1] > c_res2 else ""
-            t1 = "" if _is_zeroish(t1) else t1
-            t2 = "" if _is_zeroish(t2) else t2
-
-            out_rows.append({
-                "Archivo": archivo,
-                "Delegación": delegacion,
-                "N° Líneas": num_lineas,
-                "Línea #": linea_num,
-                "Problemática": problema,
-                "Líder": lider,
-                "Indicador": indicador,
-                "Meta": meta,
-                "Resultados T1": t1,
-                "Resultados T2": t2,
-            })
-
-    return pd.DataFrame(out_rows)
-
-def _clean_rows(df: pd.DataFrame) -> pd.DataFrame:
-    """Limpieza final: quita encabezados repetidos y filas sin indicador útil."""
-    if df.empty:
-        return df
-
-    def s(x): return "" if pd.isna(x) else str(x).strip().lower()
-    bad_ind_texts = {"", "indicadores", "indicador", "descripcion", "descripción", "resultados", "evidencia"}
-
-    mask_headerish = (
-        df.get("Líder", "").map(s).eq("lider")
-        & df.get("Indicador", "").map(s).eq("indicadores")
-        & df.get("Meta", "").map(s).eq("meta")
-    )
-    mask_bad_indicator = df.get("Indicador", "").map(s).isin(bad_ind_texts)
-
-    # Conservar solo filas buenas
-    clean = df.loc[~(mask_headerish | mask_bad_indicator)].copy()
-
-    # Opcional: quitar espacios sobrantes en todas las columnas de texto
-    for col in ["Archivo","Delegación","Problemática","Líder","Indicador","Meta","Resultados T1","Resultados T2"]:
-        if col in clean.columns:
-            clean[col] = clean[col].apply(_s)
-
-    # Reordenar por archivo y línea
-    sort_cols = [c for c in ["Archivo","Línea #"] if c in clean.columns]
-    if sort_cols:
-        clean = clean.sort_values(sort_cols, kind="stable").reset_index(drop=True)
-
-    return clean
-
+# ============== Parser principal ==============
 @st.cache_data
-def procesar_informes(files) -> pd.DataFrame:
-    todos = []
+def cargar_y_procesar(files):
+    frames = []
     for f in files:
         try:
-            xls = pd.ExcelFile(f, engine="openpyxl")
-            if "Informe de avance" not in xls.sheet_names:
-                st.warning(f"⚠️ '{f.name}' no tiene la hoja 'Informe de avance'. Se omite.")
+            xls = pd.ExcelFile(f)
+            if "Hoja 1" not in xls.sheet_names:
+                st.warning(f"⚠️ '{f.name}' no tiene hoja 'Hoja 1'. Se omite.")
                 continue
-
-            df = pd.read_excel(xls, sheet_name="Informe de avance", header=None, engine="openpyxl")
-            df_parsed = _parse_single(df, f.name)
-            todos.append(df_parsed)
+            df = pd.read_excel(xls, sheet_name="Hoja 1")
+            frames.append(df)
         except Exception as e:
-            st.error(f"❌ Error procesando '{f.name}': {e}")
+            st.error(f"❌ Error con '{f.name}': {e}")
 
-    if not todos:
+    if not frames:
         return pd.DataFrame()
 
-    result = pd.concat(todos, ignore_index=True)
-    result = _clean_rows(result)   # <<< limpieza final
-    return result
+    raw = pd.concat(frames, ignore_index=True)
 
-# ================= UI =================
-archivos = st.file_uploader("📁 Sube archivos .xlsm o .xlsx", type=["xlsm", "xlsx"], accept_multiple_files=True)
+    # Deduplicación exacta: todas las columnas iguales
+    raw = raw.drop_duplicates()
 
-if archivos:
-    df_out = procesar_informes(archivos)
+    # Normalización columnas texto
+    for col in ["Seguridad","Preocupacion","Descripcion_Delito","Lugares_Evitados","Peticion","Fuerza_Publica"]:
+        if col in raw.columns:
+            raw[col] = raw[col].astype(str).fillna("").map(_normalize_text)
 
-    if df_out.empty:
-        st.warning("No se encontraron datos con el formato esperado.")
-    else:
-        st.success(f"✅ Procesados {df_out['Archivo'].nunique()} archivo(s). Registros: {len(df_out)}")
-        st.dataframe(df_out, use_container_width=True, height=420)
+    # Clasificación a descriptores
+    out = raw.copy()
 
-        # Resumen por línea de acción
-        with st.expander("📌 Resumen por línea de acción"):
-            resumen = (
-                df_out.groupby(["Archivo","Delegación","Línea #","Problemática"], dropna=False)["Indicador"]
-                .count()
-                .reset_index(name="Total Indicadores")
-                .sort_values(["Archivo","Línea #"])
-            )
-            st.dataframe(resumen, use_container_width=True)
+    # Seguridad: ya viene categórica, solo homogeneizamos algunos valores
+    rep_seg = {
+        "muy seguro": "muy seguro",
+        "seguro": "seguro",
+        "ni seguro ni inseguro": "ni seguro ni inseguro",
+        "inseguro": "inseguro",
+        "muy inseguro": "muy inseguro",
+    }
+    out["Seguridad_Descriptor"] = out["Seguridad"].map(lambda x: rep_seg.get(x, x or "sin dato"))
 
-        # Descargar Excel
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df_out.to_excel(writer, index=False, sheet_name="Detalle")
-            if 'resumen' in locals() and not resumen.empty:
-                resumen.to_excel(writer, index=False, sheet_name="Resumen por línea")
-        st.download_button(
-            "📥 Descargar Excel",
-            data=output.getvalue(),
-            file_name="resumen_informe_avance.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-else:
-    st.info("Sube uno o varios archivos para comenzar.")
+    out["Preocupacion_Descriptor"] = out["Preocupacion"].map(lambda t: _first_match(t, TAX_PREOCUPACION) if t else "sin dato")
+    out["Delito_Descriptor"] = out["Descripcion_Delito"].map(lambda t: _first_match(t, TAX_DELITO) if t else "sin dato")
+    out["Lugar_Descriptor"] = out["Lugares_Evitados"].map(lambda t: _first_match(t, TAX_LUGAR) if t else "sin dato")
+    out["Peticion_Descriptor"] = out["Peticion"].map(lambda t: _first_match(t, TAX_PETICION) if t else "sin dato")
+
+    return out
+
+# ============== UI: Carga ==============
+files = st.file_uploader("📁 Sube archivos .xlsx / .xlsm (mismo formato de columnas)", type=["xlsx", "xlsm"], accept_multiple_files=True)
+
+if not files:
+    st.info("Sube tus archivos para comenzar.")
+    st.stop()
+
+df = cargar_y_procesar(files)
+
+if df.empty:
+    st.warning("No se encontraron datos válidos.")
+    st.stop()
+
+st.success(f"✅ {len(df)} respuestas (tras deduplicar).")
+
+# ============== Vista de datos limpios ==============
+with st.expander("🔎 Ver tabla limpia (con descriptores)"):
+    st.dataframe(df, use_container_width=True, height=400)
+
+# Descargar Excel limpio
+output = io.BytesIO()
+with pd.ExcelWriter(output, engine="openpyxl") as writer:
+    df.to_excel(writer, index=False, sheet_name="Limpio")
+st.download_button("📥 Descargar datos limpios (Excel)", data=output.getvalue(),
+                   file_name="encuesta_limpia.xlsx",
+                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+# ============== DASHBOARD ==============
+st.header("📊 Dashboard")
+
+def grafico_barras_porcentaje(serie_counts, titulo):
+    pct, total = _pct_series(serie_counts)
+    fig, ax = plt.subplots(figsize=(7, 4))
+    pct.sort_values(ascending=False).plot(kind="bar", ax=ax)
+    ax.set_ylabel("%")
+    ax.set_title(f"{titulo} (n={total})")
+    for i, v in enumerate(pct.sort_values(ascending=False).values):
+        ax.text(i, v + 1, f"{v:.1f}%", ha="center", va="bottom", fontsize=9)
+    fig.tight_layout()
+    return fig
+
+def bloque_grafico_y_descarga(counts, titulo, key):
+    fig = grafico_barras_porcentaje(counts, titulo)
+    st.pyplot(fig)
+    png = _save_fig_to_bytes(fig)
+    st.download_button(f"🖼️ Descargar '{titulo}' (PNG)", data=png, file_name=f"{key}.png", mime="image/png")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    # Seguridad
+    if "Seguridad_Descriptor" in df.columns:
+        counts = df["Seguridad_Descriptor"].value_counts()
+        bloque_grafico_y_descarga(counts, "Percepción de seguridad", "seguridad")
+
+with col2:
+    # Fuerza Pública
+    if "Fuerza_Publica" in df.columns:
+        counts = df["Fuerza_Publica"].replace({
+            "si": "sí", "no estoy seguro/a":"no estoy seguro/a"
+        }).value_counts()
+        bloque_grafico_y_descarga(counts, "Participación de Fuerza Pública", "fuerza_publica")
+
+st.markdown("---")
+
+col3, col4 = st.columns(2)
+with col3:
+    if "Preocupacion_Descriptor" in df.columns:
+        counts = df["Preocupacion_Descriptor"].value_counts()
+        bloque_grafico_y_descarga(counts, "Principales preocupaciones", "preocupaciones")
+
+with col4:
+    if "Delito_Descriptor" in df.columns:
+        counts = df["Delito_Descriptor"].value_counts()
+        bloque_grafico_y_descarga(counts, "Delitos percibidos", "delitos")
+
+st.markdown("---")
+
+col5, col6 = st.columns(2)
+with col5:
+    if "Lugar_Descriptor" in df.columns:
+        counts = df["Lugar_Descriptor"].value_counts()
+        bloque_grafico_y_descarga(counts, "Lugares/condiciones evitadas", "lugares")
+
+with col6:
+    if "Peticion_Descriptor" in df.columns:
+        counts = df["Peticion_Descriptor"].value_counts()
+        bloque_grafico_y_descarga(counts, "Peticiones a la autoridad", "peticiones")
+
+st.caption("Tip: ajusta los **TAX_*** al inicio para mejorar la unificación de textos.")
+
+
 
 
