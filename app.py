@@ -9,36 +9,49 @@ st.write("Carga uno o varios archivos Excel para extraer indicadores desde la ho
 
 # ================= Utilidades =================
 def _s(x):
-    """Texto limpio."""
+    """Devuelve texto limpio sin espacios repetidos."""
     return "" if pd.isna(x) else re.sub(r"\s+", " ", str(x)).strip()
 
 def _is_zeroish(val: str) -> bool:
-    return True if re.fullmatch(r"\s*0+(\.0+)?\s*", val or "") else False
+    """True si el valor es 0 (o 0.0, etc.)."""
+    return True if re.fullmatch(r"\s*0+(\.0+)?\s*", (val or "")) else False
+
+def _looks_like_header(lider: str, indicador: str, meta: str) -> bool:
+    """Detecta filas de encabezado/rótulos dentro del bloque para no incluirlas."""
+    L = (lider or "").strip().lower()
+    I = (indicador or "").strip().lower()
+    M = (meta or "").strip().lower()
+    if (L == "lider" and I == "indicadores" and M == "meta"):
+        return True
+    if I in {"indicadores", "indicador", "descripción", "descripcion", "resultados", "evidencia"}:
+        return True
+    if M == "meta":
+        return True
+    return False
 
 def _parse_single(df: pd.DataFrame, archivo: str) -> pd.DataFrame:
     """
     Parser adaptado a la plantilla observada.
-    Mapa de columnas (0‑based) por bloque:
-      - Encabezado global:
-          Delegación -> (2,7)  [G3]
-          N° Líneas  -> (4,7)  [G5]
-      - Por "Línea de Acción #X" (fila con texto en col=3):
-          Problemática -> misma fila, col=5
-          Fila de encabezados del bloque -> r0 + 3
+    Mapa (0‑based):
+      - Delegación -> (2,7)  [G3]
+      - N° Líneas  -> (4,7)  [G5]
+      - Por 'Línea de Acción #X' (texto en col=3):
+          Problemática -> misma fila col=5
+          Encabezado del bloque -> r0 + 3
           Columnas datos:
-              Lider (3), Indicadores (5), Meta (7)
-              Resultados T1 (13), Resultados T2 (19)
+            Lider (3), Indicadores (5), Meta (7)
+            Resultados T1 (13), Resultados T2 (19)
     """
     out_rows = []
 
-    # Delegación y número de líneas (según tu hoja de ejemplo)
+    # Delegación y número de líneas
     delegacion = _s(df.iat[2, 7]) if df.shape[0] > 2 and df.shape[1] > 7 else ""
     try:
         num_lineas = int(float(_s(df.iat[4, 7])))
     except Exception:
         num_lineas = 0
 
-    # Localizar las filas donde inicia cada "Línea de Acción #"
+    # Localizar líneas de acción
     line_rows = []
     for r in range(df.shape[0]):
         txt = _s(df.iat[r, 3]) if df.shape[1] > 3 else ""
@@ -46,11 +59,9 @@ def _parse_single(df: pd.DataFrame, archivo: str) -> pd.DataFrame:
         if m:
             line_rows.append((r, int(m.group(1))))
 
-    # Limitar a las líneas indicadas en el encabezado
     if num_lineas > 0:
         line_rows = [t for t in line_rows if t[1] <= num_lineas]
 
-    # Si no encontramos nada, devolvemos vacío
     if not line_rows:
         return pd.DataFrame(columns=[
             "Archivo","Delegación","N° Líneas","Línea #","Problemática","Líder",
@@ -60,27 +71,35 @@ def _parse_single(df: pd.DataFrame, archivo: str) -> pd.DataFrame:
     for idx, (r0, linea_num) in enumerate(line_rows):
         r_next = line_rows[idx + 1][0] if idx + 1 < len(line_rows) else df.shape[0]
 
-        # Problemática (misma fila, col=5)
+        # Problemática
         problema = _s(df.iat[r0, 5]) if df.shape[1] > 5 else ""
 
-        # Encabezado del bloque suele estar 3 filas abajo del rótulo
+        # Encabezado del bloque y columnas
         header_row = r0 + 3
         c_lider, c_ind, c_meta = 3, 5, 7
         c_res1, c_res2 = 13, 19
 
-        # Recorremos filas de datos del bloque hasta el inicio del siguiente
+        # Recorrer filas de datos del bloque
+        blank_streak = 0
         for r in range(header_row + 1, r_next):
-            # Indicador es clave para identificar una fila válida
             indicador = _s(df.iat[r, c_ind]) if df.shape[1] > c_ind else ""
-            if not indicador:
-                continue
-
             lider = _s(df.iat[r, c_lider]) if df.shape[1] > c_lider else ""
             meta = _s(df.iat[r, c_meta]) if df.shape[1] > c_meta else ""
+
+            # Si reaparece una fila de encabezados/rótulos → cortar bloque
+            if _looks_like_header(lider, indicador, meta):
+                break
+
+            # Si no hay indicador, contar vacíos y cortar tras 2 seguidos
+            if not indicador:
+                blank_streak += 1
+                if blank_streak >= 2:
+                    break
+                continue
+            blank_streak = 0
+
             t1 = _s(df.iat[r, c_res1]) if df.shape[1] > c_res1 else ""
             t2 = _s(df.iat[r, c_res2]) if df.shape[1] > c_res2 else ""
-
-            # Regla: si es 0, queda en blanco
             t1 = "" if _is_zeroish(t1) else t1
             t2 = "" if _is_zeroish(t2) else t2
 
@@ -131,7 +150,7 @@ if archivos:
         st.success(f"✅ Procesados {df_out['Archivo'].nunique()} archivo(s). Registros: {len(df_out)}")
         st.dataframe(df_out, use_container_width=True, height=420)
 
-        # Resumen por línea
+        # Resumen por línea de acción
         with st.expander("📌 Resumen por línea de acción"):
             resumen = (
                 df_out.groupby(["Archivo","Delegación","Línea #","Problemática"], dropna=False)["Indicador"]
@@ -155,4 +174,5 @@ if archivos:
         )
 else:
     st.info("Sube uno o varios archivos para comenzar.")
+
 
