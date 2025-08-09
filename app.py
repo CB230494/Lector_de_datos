@@ -118,6 +118,36 @@ def _parse_single(df: pd.DataFrame, archivo: str) -> pd.DataFrame:
 
     return pd.DataFrame(out_rows)
 
+def _clean_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Limpieza final: quita encabezados repetidos y filas sin indicador útil."""
+    if df.empty:
+        return df
+
+    def s(x): return "" if pd.isna(x) else str(x).strip().lower()
+    bad_ind_texts = {"", "indicadores", "indicador", "descripcion", "descripción", "resultados", "evidencia"}
+
+    mask_headerish = (
+        df.get("Líder", "").map(s).eq("lider")
+        & df.get("Indicador", "").map(s).eq("indicadores")
+        & df.get("Meta", "").map(s).eq("meta")
+    )
+    mask_bad_indicator = df.get("Indicador", "").map(s).isin(bad_ind_texts)
+
+    # Conservar solo filas buenas
+    clean = df.loc[~(mask_headerish | mask_bad_indicator)].copy()
+
+    # Opcional: quitar espacios sobrantes en todas las columnas de texto
+    for col in ["Archivo","Delegación","Problemática","Líder","Indicador","Meta","Resultados T1","Resultados T2"]:
+        if col in clean.columns:
+            clean[col] = clean[col].apply(_s)
+
+    # Reordenar por archivo y línea
+    sort_cols = [c for c in ["Archivo","Línea #"] if c in clean.columns]
+    if sort_cols:
+        clean = clean.sort_values(sort_cols, kind="stable").reset_index(drop=True)
+
+    return clean
+
 @st.cache_data
 def procesar_informes(files) -> pd.DataFrame:
     todos = []
@@ -136,7 +166,10 @@ def procesar_informes(files) -> pd.DataFrame:
 
     if not todos:
         return pd.DataFrame()
-    return pd.concat(todos, ignore_index=True)
+
+    result = pd.concat(todos, ignore_index=True)
+    result = _clean_rows(result)   # <<< limpieza final
+    return result
 
 # ================= UI =================
 archivos = st.file_uploader("📁 Sube archivos .xlsm o .xlsx", type=["xlsm", "xlsx"], accept_multiple_files=True)
