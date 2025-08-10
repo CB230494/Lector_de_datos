@@ -433,7 +433,7 @@ with t3: st.dataframe(df_all[df_all["Trimestre"]=="III"],use_container_width=Tru
 with t4: st.dataframe(df_all[df_all["Trimestre"]=="IV"], use_container_width=True, height=300)
 
 # ===================== 6) Exportación (siempre 4 hojas) =====================
-st.subheader("6) Descargar Excel (siempre con 4 hojas)")
+st.subheader("6) Descargar Excel")
 export_cols = [c for c in df_all.columns if c != "_row_id"]
 df_export  = df_all[export_cols].drop_duplicates()
 
@@ -445,7 +445,8 @@ dfs_by_trim = {
 }
 export_xlsx_force_4_sheets(dfs_by_trim, filename="seguimiento_trimestres_generado.xlsx")
 
-st.caption("Agregar fila base disponible para I, II, III y IV. Detección flexible de hojas; Session State activo; campos Sí/No listos en editor y formulario.")
+
+
 
 
 
