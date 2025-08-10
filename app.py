@@ -7,7 +7,7 @@ import unicodedata
 from datetime import date
 
 st.set_page_config(page_title="Seguimiento por Trimestre — Editor y Generador", layout="wide")
-st.title("📘 Seguimiento por Trimestre — Lector + Editor + Formulario (Delegación = Columna D)")
+st.title("📘 Seguimiento por Trimestre — Lector + Editor + Formulario")
 
 # ===================== Helpers =====================
 def clean_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -276,10 +276,7 @@ edited = st.data_editor(
     hide_index=True,
     key="editor",
 )
-
-c1, c2, c3, c4, c5, c6 = st.columns(6)
-with c1: do_add_iii = st.button("➕ Fila base a III", use_container_width=True)
-with c2: do_add_iv  = st.button("➕ Fila base a IV", use_container_width=True)
+ c3, c4, c5, c6 = st.columns(6)
 with c3: delete_now = st.button("🗑️ Eliminar seleccionados", use_container_width=True)
 with c4: save_now   = st.button("💾 Guardar cambios", use_container_width=True)
 with c5: new_col    = st.text_input("Nueva columna", placeholder="Nombre de columna…")
@@ -366,7 +363,7 @@ with st.form("form_add"):
     obs_new  = st.text_area(st.session_state["col_obs"] or "Observaciones", height=100)
     inst_new = st.text_input("Instituciones", "", placeholder="Ingrese instituciones involucradas…")
 
-    st.markdown("**Completar columnas H–N**")
+    
     valores_hn = {}
     for col in cols_HN:
         key = f"hn_{abs(hash(col))}"  # clave única por columna
@@ -421,5 +418,6 @@ dfs_by_trim = {
 export_xlsx_force_4_sheets(dfs_by_trim, filename="seguimiento_trimestres_generado.xlsx")
 
 st.caption("Detección flexible de nombres de hoja (I/1er/T1/Q1/etc.), datos persistentes en session_state y formulario con Sí/No para Seguimiento y Acuerdos.")
+
 
 
