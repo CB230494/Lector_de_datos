@@ -320,7 +320,7 @@ with t3: tab_view("III")
 with t4: tab_view("IV")
 
 # ===================== 6) Exportación (siempre 4 hojas) =====================
-st.subheader("6) Descargar Excel (siempre con 4 hojas)")
+st.subheader("6) Descargar Excel")
 export_cols = [c for c in df_all.columns if c != "_row_id"]
 df_export  = df_all[export_cols].drop_duplicates()
 
@@ -332,7 +332,7 @@ dfs_by_trim = {
 }
 export_xlsx_force_4_sheets(dfs_by_trim, filename="seguimiento_trimestres_generado.xlsx")
 
-st.caption("Ahora puedes agregar filas a **cualquiera** de las hojas (I/II/III/IV) desde los botones rápidos o desde cada tab.")
+
 
 
 
