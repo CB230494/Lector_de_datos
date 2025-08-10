@@ -6,7 +6,7 @@ import uuid
 from datetime import date
 
 st.set_page_config(page_title="Seguimiento por Trimestre — Editor y Generador", layout="wide")
-st.title("📘 Seguimiento por Trimestre — Lector + Editor + Formulario (Delegación = Columna D)")
+st.title("📘 Seguimiento por Trimestre — Lector + Editor + Formulario")
 
 # ===================== Helpers =====================
 def clean_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -260,7 +260,7 @@ if st.button("💾 Guardar cambios", use_container_width=True):
     st.success("Cambios guardados.")
 
 # ===================== 4) Formulario =====================
-st.subheader("4) Formulario para agregar filas")
+st.subheader("4) Formulario para agregar información")
 with st.form("form_add"):
     a, b, c, d = st.columns(4)
     fecha_new = a.date_input("Fecha", value=date.today())
@@ -277,7 +277,7 @@ with st.form("form_add"):
     obs_new  = st.text_area(col_obs or "Observaciones", height=100)
     inst_new = st.text_input("Instituciones", "", placeholder="Ingrese instituciones…")
 
-    st.markdown("**Completar columnas H–N**")
+    
     valores_hn = {}
     for col in cols_HN:
         if col in yesno_cols:
@@ -333,6 +333,7 @@ dfs_by_trim = {
 export_xlsx_force_4_sheets(dfs_by_trim, filename="seguimiento_trimestres_generado.xlsx")
 
 st.caption("Ahora puedes agregar filas a **cualquiera** de las hojas (I/II/III/IV) desde los botones rápidos o desde cada tab.")
+
 
 
 
