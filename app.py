@@ -277,7 +277,7 @@ with st.form("form_add_quick"):
 
     obs_new = st.text_area(col_obs or "Observaciones", height=100)
 
-    st.markdown("**Completar columnas H–N**")
+    st.markdown("**Completar columnas**")
     valores_hn = {}
     for col in cols_HN:
         if col in yesno_cols:
@@ -324,6 +324,7 @@ dfs_by_trim = {
 export_xlsx_force_4_sheets(dfs_by_trim, filename="seguimiento_trimestres_generado.xlsx")
 
 st.caption("Delegación se toma SIEMPRE de la columna D. Editor con Sí/No automáticos en PAO y H–N. Exportación fija con 4 hojas (I/II/III/IV).")
+
 
 
 
