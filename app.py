@@ -15,8 +15,7 @@ def clean_cols(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def take_cols_H_to_N(df: pd.DataFrame):
-    """Nombres de columnas H..N (Excel H..N → 0-based 7..13)."""
-    start, end = 7, 14
+    start, end = 7, 14  # H..N -> 0-based 7..13
     end = min(end, df.shape[1])
     return list(df.columns[start:end]) if start < end else []
 
@@ -26,7 +25,6 @@ def add_trimestre(df: pd.DataFrame, label: str) -> pd.DataFrame:
     return df
 
 def standardize_delegacion_from_colD(df: pd.DataFrame) -> pd.DataFrame:
-    """Crea columna estándar 'Delegación' desde columna D (índice 3) y elimina otras similares."""
     df = df.copy()
     if df.shape[1] > 3:
         df["Delegación"] = df.iloc[:, 3]
@@ -49,7 +47,6 @@ def ensure_row_id(df: pd.DataFrame) -> pd.DataFrame:
         df["_row_id"] = [str(uuid.uuid4()) for _ in range(len(df))]
     return df
 
-# Sí/No
 def _norm_yesno(x: str) -> str:
     if x is None or (isinstance(x, float) and pd.isna(x)): return ""
     s = str(x).strip().lower()
@@ -63,7 +60,6 @@ def _is_yesno_column(series: pd.Series) -> bool:
     return vals.issubset({"Sí","No"}) and len(vals) <= 2
 
 def export_xlsx_force_4_sheets(dfs_by_trim: dict, filename: str):
-    """Escribe SIEMPRE hojas I/II/III/IV. Vacías → solo encabezados."""
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         sample = next((df for df in dfs_by_trim.values() if df is not None and not df.empty), None)
@@ -76,7 +72,7 @@ def export_xlsx_force_4_sheets(dfs_by_trim: dict, filename: str):
                        file_name=filename,
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-# ===================== 1) Cargar archivo base (1–4 trimestres, auto) =====================
+# ===================== 1) Cargar archivo base (auto 1–4 trimestres) =====================
 st.subheader("1) Cargar archivo base (auto-detección 1–4 trimestres)")
 archivo_base = st.file_uploader("📂 Sube el Excel (IT/IIT o I/II/III/IV)", type=["xlsx","xlsm"])
 if not archivo_base:
@@ -86,7 +82,6 @@ if not archivo_base:
 xls = pd.ExcelFile(archivo_base)
 sheet_names = xls.sheet_names
 
-# Detección automática de trimestre por nombre
 TRIM_MAP_PATTERNS = [
     (r"^(it|i\s*tr|1t|primer|1)\b",  "I"),
     (r"^(iit|ii\s*tr|2t|seg|segundo|2)\b", "II"),
@@ -99,19 +94,16 @@ def guess_trim(sheet_name: str) -> str:
         if re.search(pat, s): return lab
     return ""
 
-# Asignar por nombre, y lo que falte por orden
-mapped = {}
-used = set()
+# Mapear por nombre; lo que falte, llenar por orden I→II→III→IV
+mapped, used = {}, set()
 for sh in sheet_names:
     lab = guess_trim(sh)
     if lab and lab not in used:
-        mapped[sh] = lab
-        used.add(lab)
-remaining_labels = [l for l in ["I","II","III","IV"] if l not in used]
+        mapped[sh] = lab; used.add(lab)
+remaining = [l for l in ["I","II","III","IV"] if l not in used]
 for sh in sheet_names:
-    if sh not in mapped and remaining_labels:
-        mapped[sh] = remaining_labels.pop(0)
-# Si hay más de 4 hojas, ignoramos las sobrantes
+    if sh not in mapped and remaining:
+        mapped[sh] = remaining.pop(0)
 mapped = {sh: mapped[sh] for sh in mapped if mapped[sh] in {"I","II","III","IV"}}
 
 frames = []
@@ -121,22 +113,20 @@ for sh, tri in mapped.items():
     df_sh = standardize_delegacion_from_colD(df_sh)
     df_sh = add_trimestre(df_sh, tri)
     frames.append(df_sh)
-
 if not frames:
-    st.error("No pude detectar trimestres. Renombra las hojas (ej.: IT, IIT, I, II, III, IV) o numéralas.")
+    st.error("No pude detectar trimestres. Renombra las hojas (IT, IIT, I, II, III, IV) o numéralas.")
     st.stop()
 
-# Consolidado + ID
 df_all = pd.concat(frames, ignore_index=True)
 df_all = ensure_row_id(df_all)
 
-# Detectar columnas H..N (para inputs)
+# H..N
 cols_HN = []
 for df_sample in frames:
-    if len(take_cols_H_to_N(df_sample)) > len(cols_HN):
-        cols_HN = take_cols_H_to_N(df_sample)
+    cand = take_cols_H_to_N(df_sample)
+    if len(cand) > len(cols_HN): cols_HN = cand
 
-# Detectar Tipo y Observaciones (si existen en alguna hoja)
+# Tipo/Observaciones
 def find_in_frames(frames, pat):
     for d in frames:
         c = find_col_by_exact(d, pat)
@@ -145,20 +135,18 @@ def find_in_frames(frames, pat):
 col_tipo = find_in_frames(frames, r"tipo\s*de\s*actividad\.?")
 col_obs  = find_in_frames(frames, r"observaciones?\.?")
 
-# Asegurar Fecha e Instituciones
+# Asegurar Fecha/Instituciones
 if "Fecha" not in df_all.columns: df_all["Fecha"] = pd.NaT
 if "Instituciones" not in df_all.columns: df_all["Instituciones"] = ""
 
-# PAO + columnas Sí/No (incluye H–N)
+# PAO + Sí/No
 col_pao = next((c for c in df_all.columns if re.search(r"validaci[oó]n\s*pao", c, re.I)), "Validación PAO")
 if col_pao not in df_all.columns: df_all[col_pao] = ""
-
 yesno_cols = [col_pao]
 for c in df_all.columns:
     if c in {"Delegación","Trimestre","_row_id","Fecha","Instituciones"} or c in yesno_cols:
         continue
-    if df_all[c].dtype == "O" and _is_yesno_column(df_all[c]):
-        yesno_cols.append(c)
+    if df_all[c].dtype == "O" and _is_yesno_column(df_all[c]): yesno_cols.append(c)
 for c in yesno_cols:
     df_all[c] = df_all[c].map(_norm_yesno)
 
@@ -174,7 +162,7 @@ if deleg_sel != "(Todas)":
 if trims_sel:
     df_filtrado = df_filtrado[df_filtrado["Trimestre"].isin(trims_sel)]
 
-# Columnas visibles/editar
+# Columnas a mostrar/editar
 cols_base = ["Fecha","Delegación","Trimestre"] + [c for c in [col_tipo, col_obs, "Instituciones"] if c]
 cols_mostrar = cols_base + [c for c in cols_HN if c not in cols_base] + [col_pao]
 for c in cols_mostrar:
@@ -183,7 +171,7 @@ for c in cols_mostrar:
 cols_editor = [c for c in cols_mostrar if c in df_all.columns] + ["_row_id"]
 
 # ===================== 3) Editor =====================
-st.subheader("3) Editor por delegación (editar, agregar filas/columnas, eliminar)")
+st.subheader("3) Editor (agregar/editar/eliminar filas y columnas)")
 
 df_ed = df_filtrado[cols_editor].copy()
 df_ed["Eliminar"] = False
@@ -207,13 +195,16 @@ edited = st.data_editor(
     key="editor",
 )
 
+# Botones rápidos para agregar fila base en cualquier hoja (I, II, III, IV)
 c1, c2, c3, c4, c5, c6 = st.columns(6)
-with c1: do_add_iii = st.button("➕ Fila base a III", use_container_width=True)
-with c2: do_add_iv  = st.button("➕ Fila base a IV", use_container_width=True)
-with c3: delete_now = st.button("🗑️ Eliminar seleccionados", use_container_width=True)
-with c4: save_now   = st.button("💾 Guardar cambios", use_container_width=True)
-with c5: new_col    = st.text_input("Nueva columna", placeholder="Nombre de columna…")
-with c6: add_col    = st.button("➕ Agregar columna", use_container_width=True)
+with c1: do_add_I   = st.button("➕ Fila base a I",   use_container_width=True)
+with c2: do_add_II  = st.button("➕ Fila base a II",  use_container_width=True)
+with c3: do_add_III = st.button("➕ Fila base a III", use_container_width=True)
+with c4: do_add_IV  = st.button("➕ Fila base a IV",  use_container_width=True)
+with c5: delete_now = st.button("🗑️ Eliminar seleccionados", use_container_width=True)
+with c6:
+    new_col = st.text_input("Nueva columna", placeholder="Nombre de columna…")
+    add_col = st.button("➕ Agregar columna", use_container_width=True)
 
 PROTECTED = {"_row_id","Delegación","Trimestre"}
 if add_col and new_col:
@@ -235,13 +226,12 @@ def blank_row(trim_label: str):
     base["_row_id"] = str(uuid.uuid4())
     return base
 
-if do_add_iii:
-    df_all = pd.concat([df_all, pd.DataFrame([blank_row("III")])], ignore_index=True)
-    st.success("Fila base creada en III.")
-if do_add_iv:
-    df_all = pd.concat([df_all, pd.DataFrame([blank_row("IV")])], ignore_index=True)
-    st.success("Fila base creada en IV.")
+if do_add_I:   df_all = pd.concat([df_all, pd.DataFrame([blank_row("I")])],   ignore_index=True); st.success("Fila base creada en I.")
+if do_add_II:  df_all = pd.concat([df_all, pd.DataFrame([blank_row("II")])],  ignore_index=True); st.success("Fila base creada en II.")
+if do_add_III: df_all = pd.concat([df_all, pd.DataFrame([blank_row("III")])], ignore_index=True); st.success("Fila base creada en III.")
+if do_add_IV:  df_all = pd.concat([df_all, pd.DataFrame([blank_row("IV")])],  ignore_index=True); st.success("Fila base creada en IV.")
 
+# Eliminar seleccionados
 if delete_now:
     ids = set(edited.loc[edited["Eliminar"] == True, "_row_id"].astype(str).tolist())
     if ids:
@@ -250,7 +240,8 @@ if delete_now:
     else:
         st.info("Marca 'Eliminar' en al menos una fila.")
 
-if save_now:
+# Guardar cambios del editor
+if st.button("💾 Guardar cambios", use_container_width=True):
     edited_clean = edited.drop(columns=["Eliminar"]).copy()
     for _, row in edited_clean.iterrows():
         rid = str(row["_row_id"]).strip() if pd.notna(row["_row_id"]) else ""
@@ -263,14 +254,13 @@ if save_now:
             for c in cols_mostrar:
                 if c in edited_clean.columns:
                     df_all.loc[mask, c] = row.get(c, "")
-    # re-normalizar Sí/No
     for c in yesno_cols:
         if c in df_all.columns:
             df_all[c] = df_all[c].map(_norm_yesno)
     st.success("Cambios guardados.")
 
 # ===================== 4) Formulario =====================
-st.subheader("4) Formulario rápido para agregar filas")
+st.subheader("4) Formulario para agregar filas")
 with st.form("form_add"):
     a, b, c, d = st.columns(4)
     fecha_new = a.date_input("Fecha", value=date.today())
@@ -278,14 +268,14 @@ with st.form("form_add"):
     deleg_new = c.selectbox("Delegación", sorted([deleg_sel] + delegaciones) if delegaciones else [""])
     pao_new   = d.selectbox("Validación PAO", ["", "Sí", "No"], index=0)
 
+    # Tipo y observaciones (si existen)
     tipo_new = ""
     if col_tipo:
         tipos_cat = ["Rendición de cuentas","Seguimiento","Líneas de acción","Informe territorial"]
         tipo_new = st.multiselect("Tipo de actividad (multi)", tipos_cat, default=[])
         tipo_new = "; ".join(tipo_new) if tipo_new else ""
-
     obs_new  = st.text_area(col_obs or "Observaciones", height=100)
-    inst_new = st.text_input("Instituciones", "", placeholder="Ingrese instituciones involucradas…")
+    inst_new = st.text_input("Instituciones", "", placeholder="Ingrese instituciones…")
 
     st.markdown("**Completar columnas H–N**")
     valores_hn = {}
@@ -314,13 +304,20 @@ if enviar:
     df_all = pd.concat([df_all, pd.DataFrame([nuevo])], ignore_index=True)
     st.success("Registro agregado.")
 
-# ===================== 5) Vista por tabs =====================
+# ===================== 5) Vista por tabs con “Agregar en esta hoja” =====================
 st.subheader("📑 Vista por 'hojas' (I/II/III/IV)")
+def tab_view(label):
+    subdf = df_all[df_all["Trimestre"]==label]
+    st.dataframe(subdf, use_container_width=True, height=300)
+    if st.button(f"➕ Agregar fila en {label}", key=f"add_in_{label}"):
+        df_all.loc[len(df_all)] = {**{c:"" for c in df_all.columns}, **{"Trimestre":label, "_row_id":str(uuid.uuid4())}}
+        st.success(f"Fila agregada en {label}.")
+
 t1, t2, t3, t4 = st.tabs(["I Trimestre","II Trimestre","III Trimestre","IV Trimestre"])
-with t1: st.dataframe(df_all[df_all["Trimestre"]=="I"],  use_container_width=True, height=300)
-with t2: st.dataframe(df_all[df_all["Trimestre"]=="II"], use_container_width=True, height=300)
-with t3: st.dataframe(df_all[df_all["Trimestre"]=="III"],use_container_width=True, height=300)
-with t4: st.dataframe(df_all[df_all["Trimestre"]=="IV"], use_container_width=True, height=300)
+with t1: tab_view("I")
+with t2: tab_view("II")
+with t3: tab_view("III")
+with t4: tab_view("IV")
 
 # ===================== 6) Exportación (siempre 4 hojas) =====================
 st.subheader("6) Descargar Excel (siempre con 4 hojas)")
@@ -335,7 +332,7 @@ dfs_by_trim = {
 }
 export_xlsx_force_4_sheets(dfs_by_trim, filename="seguimiento_trimestres_generado.xlsx")
 
-st.caption("Auto-detección de hojas → trimestres; Delegación siempre desde columna D; editor con agregar/editar/eliminar filas y columnas; formulario con Fecha e Instituciones; exportación fija con 4 hojas.")
+st.caption("Ahora puedes agregar filas a **cualquiera** de las hojas (I/II/III/IV) desde los botones rápidos o desde cada tab.")
 
 
 
