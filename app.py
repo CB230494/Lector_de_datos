@@ -361,7 +361,7 @@ with st.form("form_add"):
     obs_new  = st.text_area(st.session_state["col_obs"] or "Observaciones", height=100)
     inst_new = st.text_input("Instituciones", "", placeholder="Ingrese instituciones involucradas…")
 
-    st.markdown("**Completar columnas H–N**")
+   
     valores_hn = {}
     for col in cols_HN:
         key = f"hn_{abs(hash(col))}"
@@ -403,7 +403,7 @@ with t3: st.dataframe(df_all[df_all["Trimestre"]=="III"], use_container_width=Tr
 with t4: st.dataframe(df_all[df_all["Trimestre"]=="IV"], use_container_width=True, height=300)
 
 # ===================== 6) Exportación (siempre 4 hojas) =====================
-st.subheader("6) Descargar Excel (siempre con 4 hojas)")
+st.subheader("6) Descargar Excel")
 export_cols = [c for c in df_all.columns if c != "_row_id"]
 df_export  = df_all[export_cols].drop_duplicates()
 
@@ -415,7 +415,8 @@ dfs_by_trim = {
 }
 export_xlsx_force_4_sheets(dfs_by_trim, filename="seguimiento_trimestres_generado.xlsx")
 
-st.caption("Delegación se carga desde columna D del Excel; los selectores usan solo tu lista oficial; coincidencia de filtro por subcadena sin acentos.")
+
+
 
 
 
