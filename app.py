@@ -144,17 +144,27 @@ if "file_key" not in st.session_state or st.session_state["file_key"] != file_ke
     if "Fecha" not in df_all.columns: df_all["Fecha"] = pd.NaT
     if "Instituciones" not in df_all.columns: df_all["Instituciones"] = ""
 
-    # PAO + columnas Sí/No (incluye H–N)
+    # PAO + columnas Sí/No (incluye H–N) con HINTS de nombres
     col_pao = next((c for c in df_all.columns if re.search(r"validaci[oó]n\s*pao", c, re.I)), "Validación PAO")
     if col_pao not in df_all.columns: df_all[col_pao] = ""
 
-    yesno_cols = [col_pao]
+    yesno_cols = {col_pao}
+    # Hints por nombre (aunque estén vacías)
+    YESNO_NAME_HINTS = [
+        r"validaci[oó]n\s*pao",
+        r"^¿\s*hubo\s+acuerdos\s+inter[- ]?institucionales.*",  # ¿Hubo acuerdos inter-institucionales...?
+    ]
     for c in df_all.columns:
-        if c in {"Delegación","Trimestre","_row_id","Fecha","Instituciones"} or c in yesno_cols:
+        if c in {"Delegación","Trimestre","_row_id","Fecha","Instituciones"}: 
             continue
-        if df_all[c].dtype == "O" and _is_yesno_column(df_all[c]):
-            yesno_cols.append(c)
+        if any(re.search(pat, c, re.I) for pat in YESNO_NAME_HINTS):
+            yesno_cols.add(c)
+        elif df_all[c].dtype == "O" and _is_yesno_column(df_all[c]):
+            yesno_cols.add(c)
+
     for c in yesno_cols:
+        if c not in df_all.columns:
+            df_all[c] = ""
         df_all[c] = df_all[c].map(_norm_yesno)
 
     # Guardar en sesión
@@ -164,7 +174,7 @@ if "file_key" not in st.session_state or st.session_state["file_key"] != file_ke
     st.session_state["col_tipo"]   = col_tipo
     st.session_state["col_obs"]    = col_obs
     st.session_state["col_pao"]    = col_pao
-    st.session_state["yesno_cols"] = yesno_cols
+    st.session_state["yesno_cols"] = list(yesno_cols)
 
 # Usar SIEMPRE lo que está en sesión (persistente entre reruns)
 df_all     = st.session_state["df_all"].copy()
@@ -172,7 +182,7 @@ cols_HN    = st.session_state["cols_HN"]
 col_tipo   = st.session_state["col_tipo"]
 col_obs    = st.session_state["col_obs"]
 col_pao    = st.session_state["col_pao"]
-yesno_cols = st.session_state["yesno_cols"]
+yesno_cols = set(st.session_state["yesno_cols"])
 
 # ===================== 2) Filtros =====================
 st.subheader("2) Filtros")
@@ -296,21 +306,22 @@ with st.form("form_add"):
     pao_new   = d.selectbox("Validación PAO", ["", "Sí", "No"], index=0)
 
     tipo_new = ""
-    if st.session_state["col_tipo"]:
+    if col_tipo:
         tipos_cat = ["Rendición de cuentas","Seguimiento","Líneas de acción","Informe territorial"]
         tipo_new = st.multiselect("Tipo de actividad (multi)", tipos_cat, default=[])
         tipo_new = "; ".join(tipo_new) if tipo_new else ""
 
-    obs_new  = st.text_area(st.session_state["col_obs"] or "Observaciones", height=100)
+    obs_new  = st.text_area(col_obs or "Observaciones", height=100)
     inst_new = st.text_input("Instituciones", "", placeholder="Ingrese instituciones involucradas…")
 
     st.markdown("**Completar columnas H–N**")
     valores_hn = {}
     for col in cols_HN:
+        key = f"hn_{abs(hash(col))}"  # clave única por columna
         if col in yesno_cols:
-            valores_hn[col] = st.selectbox(col, ["", "Sí", "No"], index=0)
+            valores_hn[col] = st.selectbox(col, ["", "Sí", "No"], index=0, key=key)
         else:
-            valores_hn[col] = st.text_input(col, value="")
+            valores_hn[col] = st.text_input(col, value="", key=key)
 
     enviar = st.form_submit_button("➕ Agregar registro")
 
@@ -322,13 +333,16 @@ if enviar:
         "Instituciones": inst_new,
         "_row_id": str(uuid.uuid4()),
     }
-    col_pao = st.session_state["col_pao"]
     nuevo[col_pao if col_pao in df_all.columns else "Validación PAO"] = pao_new
-    if st.session_state["col_tipo"]: nuevo[st.session_state["col_tipo"]] = tipo_new
-    if st.session_state["col_obs"]:  nuevo[st.session_state["col_obs"]]  = obs_new
+    if col_tipo: nuevo[col_tipo] = tipo_new
+    if col_obs:  nuevo[col_obs]  = obs_new
+
+    # Asegurar que todas las H–N existan y asignar valores
     for col in cols_HN:
-        if col not in df_all.columns: df_all[col] = ""
+        if col not in df_all.columns:
+            df_all[col] = ""
         nuevo[col] = valores_hn.get(col, "")
+
     df_all = pd.concat([df_all, pd.DataFrame([nuevo])], ignore_index=True)
     st.session_state["df_all"] = df_all
     st.success("Registro agregado.")
@@ -354,6 +368,5 @@ dfs_by_trim = {
 }
 export_xlsx_force_4_sheets(dfs_by_trim, filename="seguimiento_trimestres_generado.xlsx")
 
-st.caption("Los datos agregados se conservan entre acciones gracias a session_state. Si cambias de archivo, se recarga todo automáticamente.")
-
+st.caption("Inputs H–N ahora tienen claves únicas y se detectan como Sí/No por nombre. Puedes completar 'Seguimiento líneas de acción' y '¿Hubo acuerdos inter-institucionales…?' sin problema.")
 
