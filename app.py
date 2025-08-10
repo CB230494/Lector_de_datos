@@ -83,78 +83,96 @@ if not archivo_base:
     st.info("Sube el archivo para continuar.")
     st.stop()
 
-xls = pd.ExcelFile(archivo_base)
-sheet_names = xls.sheet_names
+# ---------- Persistencia en sesión ----------
+file_key = f"{archivo_base.name}-{getattr(archivo_base, 'size', None)}"
+if "file_key" not in st.session_state or st.session_state["file_key"] != file_key:
+    # (Re)cargar desde archivo porque es un archivo nuevo o cambió
+    xls = pd.ExcelFile(archivo_base)
+    sheet_names = xls.sheet_names
 
-# Detección automática de trimestre por nombre (solo mapeamos si COINCIDE)
-TRIM_MAP_PATTERNS = [
-    (r"^(it|i\s*tr|1t|primer|1)\b",  "I"),
-    (r"^(iit|ii\s*tr|2t|seg|segundo|2)\b", "II"),
-    (r"^(iii|iii\s*tr|3t|terc|tercero|3)\b", "III"),
-    (r"^(iv|iv\s*tr|4t|cuart|cuarto|4)\b",  "IV"),
-]
-def guess_trim(sheet_name: str) -> str:
-    s = sheet_name.strip().lower()
-    for pat, lab in TRIM_MAP_PATTERNS:
-        if re.search(pat, s): return lab
-    return ""
+    TRIM_MAP_PATTERNS = [
+        (r"^(it|i\s*tr|1t|primer|1)\b",  "I"),
+        (r"^(iit|ii\s*tr|2t|seg|segundo|2)\b", "II"),
+        (r"^(iii|iii\s*tr|3t|terc|tercero|3)\b", "III"),
+        (r"^(iv|iv\s*tr|4t|cuart|cuarto|4)\b",  "IV"),
+    ]
+    def guess_trim(sheet_name: str) -> str:
+        s = sheet_name.strip().lower()
+        for pat, lab in TRIM_MAP_PATTERNS:
+            if re.search(pat, s): return lab
+        return ""
 
-# Solo cargamos hojas que COINCIDEN; NO se rellenan “por orden”
-mapped = {}
-used = set()
-for sh in sheet_names:
-    lab = guess_trim(sh)
-    if lab and lab not in used:
-        mapped[sh] = lab
-        used.add(lab)
+    mapped = {}
+    used = set()
+    for sh in sheet_names:
+        lab = guess_trim(sh)
+        if lab and lab not in used:
+            mapped[sh] = lab
+            used.add(lab)
 
-frames = []
-for sh, tri in mapped.items():
-    df_sh = pd.read_excel(xls, sheet_name=sh)
-    df_sh = clean_cols(df_sh)
-    df_sh = standardize_delegacion_from_colD(df_sh)
-    df_sh = add_trimestre(df_sh, tri)
-    frames.append(df_sh)
+    frames = []
+    for sh, tri in mapped.items():
+        df_sh = pd.read_excel(xls, sheet_name=sh)
+        df_sh = clean_cols(df_sh)
+        df_sh = standardize_delegacion_from_colD(df_sh)
+        df_sh = add_trimestre(df_sh, tri)
+        frames.append(df_sh)
 
-if not frames:
-    st.error("No pude detectar hojas de trimestres (IT, IIT, I, II, III o IV). Renombra las hojas o verifica el archivo.")
-    st.stop()
+    if not frames:
+        st.error("No pude detectar hojas de trimestres (IT, IIT, I, II, III o IV). Renombra las hojas o verifica el archivo.")
+        st.stop()
 
-# Consolidado + ID
-df_all = pd.concat(frames, ignore_index=True)
-df_all = ensure_row_id(df_all)
+    df_all = pd.concat(frames, ignore_index=True)
+    df_all = ensure_row_id(df_all)
 
-# Detectar columnas H..N (para inputs)
-cols_HN = []
-for df_sample in frames:
-    if len(take_cols_H_to_N(df_sample)) > len(cols_HN):
-        cols_HN = take_cols_H_to_N(df_sample)
+    # Detectar columnas H..N a partir de la hoja más grande
+    cols_HN = []
+    for df_sample in frames:
+        if len(take_cols_H_to_N(df_sample)) > len(cols_HN):
+            cols_HN = take_cols_H_to_N(df_sample)
 
-# Detectar Tipo y Observaciones (si existen en alguna hoja)
-def find_in_frames(frames, pat):
-    for d in frames:
-        c = find_col_by_exact(d, pat)
-        if c: return c
-    return None
-col_tipo = find_in_frames(frames, r"tipo\s*de\s*actividad\.?")
-col_obs  = find_in_frames(frames, r"observaciones?\.?")
+    # Detectar Tipo y Observaciones (si existen en alguna hoja)
+    def find_in_frames(frames, pat):
+        for d in frames:
+            c = find_col_by_exact(d, pat)
+            if c: return c
+        return None
+    col_tipo = find_in_frames(frames, r"tipo\s*de\s*actividad\.?")
+    col_obs  = find_in_frames(frames, r"observaciones?\.?")
 
-# Asegurar Fecha e Instituciones
-if "Fecha" not in df_all.columns: df_all["Fecha"] = pd.NaT
-if "Instituciones" not in df_all.columns: df_all["Instituciones"] = ""
+    # Asegurar Fecha e Instituciones
+    if "Fecha" not in df_all.columns: df_all["Fecha"] = pd.NaT
+    if "Instituciones" not in df_all.columns: df_all["Instituciones"] = ""
 
-# PAO + columnas Sí/No (incluye H–N)
-col_pao = next((c for c in df_all.columns if re.search(r"validaci[oó]n\s*pao", c, re.I)), "Validación PAO")
-if col_pao not in df_all.columns: df_all[col_pao] = ""
+    # PAO + columnas Sí/No (incluye H–N)
+    col_pao = next((c for c in df_all.columns if re.search(r"validaci[oó]n\s*pao", c, re.I)), "Validación PAO")
+    if col_pao not in df_all.columns: df_all[col_pao] = ""
 
-yesno_cols = [col_pao]
-for c in df_all.columns:
-    if c in {"Delegación","Trimestre","_row_id","Fecha","Instituciones"} or c in yesno_cols:
-        continue
-    if df_all[c].dtype == "O" and _is_yesno_column(df_all[c]):
-        yesno_cols.append(c)
-for c in yesno_cols:
-    df_all[c] = df_all[c].map(_norm_yesno)
+    yesno_cols = [col_pao]
+    for c in df_all.columns:
+        if c in {"Delegación","Trimestre","_row_id","Fecha","Instituciones"} or c in yesno_cols:
+            continue
+        if df_all[c].dtype == "O" and _is_yesno_column(df_all[c]):
+            yesno_cols.append(c)
+    for c in yesno_cols:
+        df_all[c] = df_all[c].map(_norm_yesno)
+
+    # Guardar en sesión
+    st.session_state["file_key"]   = file_key
+    st.session_state["df_all"]     = df_all
+    st.session_state["cols_HN"]    = cols_HN
+    st.session_state["col_tipo"]   = col_tipo
+    st.session_state["col_obs"]    = col_obs
+    st.session_state["col_pao"]    = col_pao
+    st.session_state["yesno_cols"] = yesno_cols
+
+# Usar SIEMPRE lo que está en sesión (persistente entre reruns)
+df_all     = st.session_state["df_all"].copy()
+cols_HN    = st.session_state["cols_HN"]
+col_tipo   = st.session_state["col_tipo"]
+col_obs    = st.session_state["col_obs"]
+col_pao    = st.session_state["col_pao"]
+yesno_cols = st.session_state["yesno_cols"]
 
 # ===================== 2) Filtros =====================
 st.subheader("2) Filtros")
@@ -218,6 +236,7 @@ if add_col and new_col:
     else:
         df_all[new_col] = ""
         st.success(f"Columna '{new_col}' agregada.")
+        st.session_state["df_all"] = df_all  # persistir
 
 def blank_row(trim_label: str):
     base = {k: "" for k in cols_mostrar}
@@ -232,15 +251,19 @@ def blank_row(trim_label: str):
 if do_add_iii:
     df_all = pd.concat([df_all, pd.DataFrame([blank_row("III")])], ignore_index=True)
     st.success("Fila base creada en III.")
+    st.session_state["df_all"] = df_all
+
 if do_add_iv:
     df_all = pd.concat([df_all, pd.DataFrame([blank_row("IV")])], ignore_index=True)
     st.success("Fila base creada en IV.")
+    st.session_state["df_all"] = df_all
 
 if delete_now:
     ids = set(edited.loc[edited["Eliminar"] == True, "_row_id"].astype(str).tolist())
     if ids:
         df_all = df_all[~df_all["_row_id"].astype(str).isin(ids)]
         st.success(f"Eliminadas {len(ids)} fila(s).")
+        st.session_state["df_all"] = df_all
     else:
         st.info("Marca 'Eliminar' en al menos una fila.")
 
@@ -257,11 +280,11 @@ if save_now:
             for c in cols_mostrar:
                 if c in edited_clean.columns:
                     df_all.loc[mask, c] = row.get(c, "")
-    # re-normalizar Sí/No
     for c in yesno_cols:
         if c in df_all.columns:
             df_all[c] = df_all[c].map(_norm_yesno)
     st.success("Cambios guardados.")
+    st.session_state["df_all"] = df_all
 
 # ===================== 4) Formulario =====================
 st.subheader("4) Formulario rápido para agregar filas")
@@ -273,12 +296,12 @@ with st.form("form_add"):
     pao_new   = d.selectbox("Validación PAO", ["", "Sí", "No"], index=0)
 
     tipo_new = ""
-    if col_tipo:
+    if st.session_state["col_tipo"]:
         tipos_cat = ["Rendición de cuentas","Seguimiento","Líneas de acción","Informe territorial"]
         tipo_new = st.multiselect("Tipo de actividad (multi)", tipos_cat, default=[])
         tipo_new = "; ".join(tipo_new) if tipo_new else ""
 
-    obs_new  = st.text_area(col_obs or "Observaciones", height=100)
+    obs_new  = st.text_area(st.session_state["col_obs"] or "Observaciones", height=100)
     inst_new = st.text_input("Instituciones", "", placeholder="Ingrese instituciones involucradas…")
 
     st.markdown("**Completar columnas H–N**")
@@ -299,13 +322,15 @@ if enviar:
         "Instituciones": inst_new,
         "_row_id": str(uuid.uuid4()),
     }
+    col_pao = st.session_state["col_pao"]
     nuevo[col_pao if col_pao in df_all.columns else "Validación PAO"] = pao_new
-    if col_tipo: nuevo[col_tipo] = tipo_new
-    if col_obs:  nuevo[col_obs]  = obs_new
+    if st.session_state["col_tipo"]: nuevo[st.session_state["col_tipo"]] = tipo_new
+    if st.session_state["col_obs"]:  nuevo[st.session_state["col_obs"]]  = obs_new
     for col in cols_HN:
         if col not in df_all.columns: df_all[col] = ""
         nuevo[col] = valores_hn.get(col, "")
     df_all = pd.concat([df_all, pd.DataFrame([nuevo])], ignore_index=True)
+    st.session_state["df_all"] = df_all
     st.success("Registro agregado.")
 
 # ===================== 5) Vista por tabs =====================
@@ -329,6 +354,6 @@ dfs_by_trim = {
 }
 export_xlsx_force_4_sheets(dfs_by_trim, filename="seguimiento_trimestres_generado.xlsx")
 
-st.caption("Auto-detección estricta (solo hojas IT/IIT/I/II/III/IV). Si tu archivo trae solo I y II, las pestañas III y IV quedan vacías hasta que agregues datos.")
+st.caption("Los datos agregados se conservan entre acciones gracias a session_state. Si cambias de archivo, se recarga todo automáticamente.")
 
 
