@@ -183,10 +183,10 @@ def hoja_editor(label: str):
         column_config=col_cfg, hide_index=True, key=f"ed_{label}"
     )
 
-    # Acciones
-    c1, c2, c3, c4 = st.columns([1,1,2,2])
-    with c1:
-        if st.button(f"➕ Agregar fila en {label}", key=f"addrow_{label}", use_container_width=True):
+    # Acciones (keys únicas)
+    col1, col2, col3, col4 = st.columns([1,1,2,2])
+    with col1:
+        if st.button(f"➕ Agregar fila en {label}", key=f"btn_addrow_{label}", use_container_width=True):
             new = {c: "" for c in edited.columns}
             new["Fecha"] = pd.NaT
             new["Trimestre"] = label
@@ -195,9 +195,9 @@ def hoja_editor(label: str):
             edited.loc[len(edited)] = new
             st.experimental_rerun()
 
-    with c2:
-        new_col = st.text_input("Nueva columna", key=f"newcol_{label}", placeholder="Nombre…")
-        if st.button("➕ Agregar columna", key=f"addcol_{label}", use_container_width=True):
+    with col2:
+        new_col = st.text_input("Nueva columna", key=f"txt_newcol_{label}", placeholder="Nombre…")
+        if st.button("➕ Agregar columna", key=f"btn_addcol_{label}", use_container_width=True):
             if new_col:
                 if new_col in edited.columns:
                     st.warning("Ya existe esa columna.")
@@ -207,8 +207,8 @@ def hoja_editor(label: str):
                     edited[new_col] = ""
                     st.experimental_rerun()
 
-    with c3:
-        if st.button("🗑️ Eliminar seleccionados", key=f"del_{label}", use_container_width=True):
+    with col3:
+        if st.button("🗑️ Eliminar seleccionados", key=f"btn_delete_{label}", use_container_width=True):
             to_del = set(edited.loc[edited["_Eliminar"] == True, "_row_id"].astype(str))
             if to_del:
                 edited = edited[~edited["_row_id"].astype(str).isin(to_del)]
@@ -217,33 +217,34 @@ def hoja_editor(label: str):
             else:
                 st.info("Marca 'Eliminar' en al menos una fila.")
 
-    with c4:
-        if st.button("💾 Guardar cambios de esta hoja", key=f"save_{label}", use_container_width=True):
+    with col4:
+        if st.button("💾 Guardar cambios de esta hoja", key=f"btn_save_{label}", use_container_width=True):
             out = edited.drop(columns=["_Eliminar"], errors="ignore")
             out = normalize_yesno(out, yesno_cols)
             dfs[label] = out.copy()
             st.success("Cambios guardados en memoria.")
 
-    # Formulario rápido para esta hoja
+    # Formulario rápido para esta hoja (keys únicas)
     with st.expander("➕ Formulario rápido (agrega 1 fila a esta hoja)"):
         a, b, c, d = st.columns(4)
-        f_new = a.date_input("Fecha", value=date.today(), key=f"f_{label}")
+        f_new = a.date_input("Fecha", value=date.today(), key=f"date_{label}")
         # delegaciones sugeridas por lo ya existente
         delegs = sorted([d for d in edited.get("Delegación", pd.Series(dtype=str))
                          .dropna().astype(str).map(str.strip).unique() if d])
-        d_new = b.selectbox("Delegación", options=delegs + [""], index=len(delegs) if delegs else 0, key=f"del_{label}")
-        pao_new = c.selectbox("Validación PAO", ["", "Sí", "No"], key=f"pao_{label}")
-        inst_new = d.text_input("Instituciones", key=f"inst_{label}", placeholder="Ingrese instituciones…")
+        d_new = b.selectbox("Delegación", options=delegs + [""],
+                            index=len(delegs) if delegs else 0, key=f"sbx_deleg_{label}")
+        pao_new = c.selectbox("Validación PAO", ["", "Sí", "No"], key=f"sbx_pao_{label}")
+        inst_new = d.text_input("Instituciones", key=f"txt_inst_{label}", placeholder="Ingrese instituciones…")
         # Observaciones (si existe la columna)
         obs_col = next((cn for cn in edited.columns if re.fullmatch(r"observaciones?\.?", cn, re.I)), None)
         if obs_col:
-            obs_val = st.text_area(obs_col, key=f"obs_{label}")
+            obs_val = st.text_area(obs_col, key=f"txt_obs_{label}")
         else:
-            obs_val = st.text_area("Observaciones", key=f"obs_{label}")
+            obs_val = st.text_area("Observaciones", key=f"txt_obs_{label}")
             edited["Observaciones"] = edited.get("Observaciones", "")
             obs_col = "Observaciones"
 
-        if st.button("Agregar registro", key=f"add_form_{label}"):
+        if st.button("Agregar registro", key=f"btn_add_form_{label}"):
             nuevo = {
                 "_row_id": str(uuid.uuid4()),
                 "Fecha": pd.to_datetime(f_new),
@@ -253,7 +254,6 @@ def hoja_editor(label: str):
                 pao_col_name(edited): pao_new,
                 obs_col: obs_val
             }
-            # Rellenar demás columnas con vacío
             for ccol in edited.columns:
                 if ccol not in nuevo:
                     nuevo[ccol] = "" if ccol != "Fecha" else pd.NaT
@@ -274,6 +274,8 @@ st.subheader("3) Exportar Excel (siempre 4 hojas)")
 export_xlsx_force_4_sheets(dfs, filename="seguimiento_trimestres_independiente.xlsx")
 
 st.caption("Cada pestaña maneja su propia hoja. Agregar/editar/eliminar en una no afecta a las demás. Delegación siempre proviene de la columna D del archivo cargado.")
+
+
 
 
 
