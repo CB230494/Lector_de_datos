@@ -3,10 +3,11 @@ import pandas as pd
 import io
 import re
 import uuid
+import unicodedata
 from datetime import date
 
 st.set_page_config(page_title="Seguimiento por Trimestre — Editor y Generador", layout="wide")
-st.title("📘 Seguimiento por Trimestre — Lector + Editor + Formulario")
+st.title("📘 Seguimiento por Trimestre — Lector + Editor + Formulario (Delegación = Columna D)")
 
 # ===================== Helpers =====================
 def clean_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -93,16 +94,47 @@ if "file_key" not in st.session_state or st.session_state["file_key"] != file_ke
     xls = pd.ExcelFile(archivo_base)
     sheet_names = xls.sheet_names
 
-    TRIM_MAP_PATTERNS = [
-        (r"^(it|i\s*tr|1t|primer|1)\b",  "I"),
-        (r"^(iit|ii\s*tr|2t|seg|segundo|2)\b", "II"),
-        (r"^(iii|iii\s*tr|3t|terc|tercero|3)\b", "III"),
-        (r"^(iv|iv\s*tr|4t|cuart|cuarto|4)\b",  "IV"),
+    # ===== Detección flexible de nombres de hoja =====
+    def _norm(s: str) -> str:
+        s = s.strip().lower()
+        s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+        s = re.sub(r'\s+', ' ', s)
+        return s
+
+    PAT_I = [
+        r'^i($|\b)', r'^i\s*tri', r'^it\b',
+        r'^1($|\b)', r'^1\s*tri', r'^t1($|\b)', r'^q1($|\b)',
+        r'^1er\b', r'^primer\b', r'^primero\b',
+        r'^trimestre\s*i\b', r'^trim\s*i\b',
     ]
+    PAT_II = [
+        r'^ii($|\b)', r'^ii\s*tri', r'^iit\b',
+        r'^2($|\b)', r'^2\s*tri', r'^t2($|\b)', r'^q2($|\b)',
+        r'^2do\b', r'^segundo?\b',
+        r'^trimestre\s*ii\b', r'^trim\s*ii\b',
+    ]
+    PAT_III = [
+        r'^iii($|\b)', r'^iii\s*tri',
+        r'^3($|\b)', r'^3\s*tri', r'^t3($|\b)', r'^q3($|\b)',
+        r'^3er\b', r'^tercer(o)?\b',
+        r'^trimestre\s*iii\b', r'^trim\s*iii\b',
+    ]
+    PAT_IV = [
+        r'^iv($|\b)', r'^iv\s*tri',
+        r'^4($|\b)', r'^4\s*tri', r'^t4($|\b)', r'^q4($|\b)',
+        r'^4to\b', r'^cuarto?\b',
+        r'^trimestre\s*iv\b', r'^trim\s*iv\b',
+    ]
+
+    def _match_any(s: str, pats: list[str]) -> bool:
+        return any(re.search(p, s, re.I) for p in pats)
+
     def guess_trim(sheet_name: str) -> str:
-        s = sheet_name.strip().lower()
-        for pat, lab in TRIM_MAP_PATTERNS:
-            if re.search(pat, s): return lab
+        s = _norm(sheet_name)
+        if _match_any(s, PAT_I):   return "I"
+        if _match_any(s, PAT_II):  return "II"
+        if _match_any(s, PAT_III): return "III"
+        if _match_any(s, PAT_IV):  return "IV"
         return ""
 
     # Solo mapeamos hojas que COINCIDEN; NO se rellenan por orden
@@ -110,8 +142,16 @@ if "file_key" not in st.session_state or st.session_state["file_key"] != file_ke
     for sh in sheet_names:
         lab = guess_trim(sh)
         if lab and lab not in used:
-            mapped[sh] = lab; used.add(lab)
+            mapped[sh] = lab
+            used.add(lab)
 
+    with st.expander("🔎 Ver mapeo de hojas detectado"):
+        if not mapped:
+            st.warning("No se detectaron hojas de trimestres.")
+        else:
+            st.write({sh: mapped[sh] for sh in mapped})
+
+    # ===== Leer hojas detectadas =====
     frames = []
     for sh, tri in mapped.items():
         df_sh = pd.read_excel(xls, sheet_name=sh)
@@ -156,7 +196,7 @@ if "file_key" not in st.session_state or st.session_state["file_key"] != file_ke
         r"^¿\s*hubo\s+acuerdos\s+inter[- ]?institucionales.*",
     ]
     for c in df_all.columns:
-        if c in {"Delegación","Trimestre","_row_id","Fecha","Instituciones"}: 
+        if c in {"Delegación","Trimestre","_row_id","Fecha","Instituciones"}:
             continue
         if any(re.search(pat, c, re.I) for pat in YESNO_NAME_HINTS) or \
            (df_all[c].dtype == "O" and _is_yesno_column(df_all[c])):
@@ -208,7 +248,7 @@ for c in cols_mostrar:
         df_all[c] = "" if c != "Fecha" else pd.NaT
 
 # ⚠️ REALINEAR df_filtrado después de crear columnas nuevas
-df_filtrado = df_all.loc[df_filtrado.index]  # conserva las mismas filas, pero con todas las columnas
+df_filtrado = df_all.loc[df_filtrado.index]
 
 cols_editor = [c for c in cols_mostrar if c in df_all.columns] + ["_row_id"]
 
@@ -310,7 +350,7 @@ with st.form("form_add"):
     a, b, c, d = st.columns(4)
     fecha_new = a.date_input("Fecha", value=date.today())
     trim_new  = b.selectbox("Trimestre", ["I","II","III","IV"], index=2)
-    deleg_new = c.selectbox("Delegación", sorted([deleg_sel] + delegaciones) if delegaciones else [""], index=0)
+    deleg_new = c.selectbox("Delegación", sorted([deleg_sel] + delegaciones) if delegaciones else [""])
     pao_new   = d.selectbox("Validación PAO", ["", "Sí", "No"], index=0)
 
     # Sí/No explícitos para las 2 columnas canónicas
@@ -329,7 +369,7 @@ with st.form("form_add"):
     st.markdown("**Completar columnas H–N**")
     valores_hn = {}
     for col in cols_HN:
-        key = f"hn_{abs(hash(col))}"
+        key = f"hn_{abs(hash(col))}"  # clave única por columna
         if col in yesno_cols:
             valores_hn[col] = st.selectbox(col, ["", "Sí", "No"], index=0, key=key)
         else:
@@ -380,6 +420,6 @@ dfs_by_trim = {
 }
 export_xlsx_force_4_sheets(dfs_by_trim, filename="seguimiento_trimestres_generado.xlsx")
 
-st.caption("Fix: realineamos el DataFrame filtrado después de crear columnas → adiós KeyError. Formulario incluye Sí/No para Seguimiento y Acuerdos.")
+st.caption("Detección flexible de nombres de hoja (I/1er/T1/Q1/etc.), datos persistentes en session_state y formulario con Sí/No para Seguimiento y Acuerdos.")
 
 
