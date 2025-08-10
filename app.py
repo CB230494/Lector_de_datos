@@ -86,7 +86,7 @@ if not archivo_base:
 xls = pd.ExcelFile(archivo_base)
 sheet_names = xls.sheet_names
 
-# Detección automática de trimestre por nombre
+# Detección automática de trimestre por nombre (solo mapeamos si COINCIDE)
 TRIM_MAP_PATTERNS = [
     (r"^(it|i\s*tr|1t|primer|1)\b",  "I"),
     (r"^(iit|ii\s*tr|2t|seg|segundo|2)\b", "II"),
@@ -99,7 +99,7 @@ def guess_trim(sheet_name: str) -> str:
         if re.search(pat, s): return lab
     return ""
 
-# Asignar por nombre, y lo que falte por orden
+# Solo cargamos hojas que COINCIDEN; NO se rellenan “por orden”
 mapped = {}
 used = set()
 for sh in sheet_names:
@@ -107,12 +107,6 @@ for sh in sheet_names:
     if lab and lab not in used:
         mapped[sh] = lab
         used.add(lab)
-remaining_labels = [l for l in ["I","II","III","IV"] if l not in used]
-for sh in sheet_names:
-    if sh not in mapped and remaining_labels:
-        mapped[sh] = remaining_labels.pop(0)
-# Si hay más de 4 hojas, ignoramos las sobrantes
-mapped = {sh: mapped[sh] for sh in mapped if mapped[sh] in {"I","II","III","IV"}}
 
 frames = []
 for sh, tri in mapped.items():
@@ -123,7 +117,7 @@ for sh, tri in mapped.items():
     frames.append(df_sh)
 
 if not frames:
-    st.error("No pude detectar trimestres. Renombra las hojas (ej.: IT, IIT, I, II, III, IV) o numéralas.")
+    st.error("No pude detectar hojas de trimestres (IT, IIT, I, II, III o IV). Renombra las hojas o verifica el archivo.")
     st.stop()
 
 # Consolidado + ID
@@ -335,7 +329,6 @@ dfs_by_trim = {
 }
 export_xlsx_force_4_sheets(dfs_by_trim, filename="seguimiento_trimestres_generado.xlsx")
 
-st.caption("Auto-detección de hojas → trimestres; Delegación siempre desde columna D; editor con agregar/editar/eliminar filas y columnas; formulario con Fecha e Instituciones; exportación fija con 4 hojas.")
-
+st.caption("Auto-detección estricta (solo hojas IT/IIT/I/II/III/IV). Si tu archivo trae solo I y II, las pestañas III y IV quedan vacías hasta que agregues datos.")
 
 
