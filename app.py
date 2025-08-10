@@ -9,7 +9,7 @@ from datetime import date
 st.set_page_config(page_title="Seguimiento por Trimestre — Hojas independientes", layout="wide")
 st.title("📘 Seguimiento por Trimestre — Hojas I/II/III/IV independientes")
 
-# ================= Utilidades =================
+# ============== Utilidades ==============
 def clean_cols(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df.columns = [str(c).strip() for c in df.columns]
@@ -41,12 +41,13 @@ def ensure_row_id(df: pd.DataFrame) -> pd.DataFrame:
         df["_row_id"] = [str(uuid.uuid4()) for _ in range(len(df))]
     return df
 
-# --- Sí/No helpers
+# Sí/No helpers
 def _norm_yesno(x):
-    if x is None or (isinstance(x, float) and pd.isna(x)): return ""
+    if x is None or (isinstance(x, float) and pd.isna(x)):
+        return ""
     s = str(x).strip().lower()
-    if s in {"si","sí","s","yes","y"}: return "Sí"
-    if s in {"no","n"}: return "No"
+    if s in {"si", "sí", "s", "yes", "y"}: return "Sí"
+    if s in {"no", "n"}: return "No"
     return ""
 
 def _is_yesno_col(series: pd.Series) -> bool:
@@ -63,8 +64,13 @@ def detect_yesno_cols(df: pd.DataFrame, extra_binary_cols=None):
 def normalize_yesno(df: pd.DataFrame, yesno_cols: list[str]) -> pd.DataFrame:
     df = df.copy()
     for c in yesno_cols:
-        if c in df.columns: df[c] = df[c].map(_norm_yesno)
+        if c in df.columns:
+            df[c] = df[c].map(_norm_yesno)
     return df
+
+def pao_col_name(df: pd.DataFrame) -> str:
+    c = next((c for c in df.columns if re.search(r"validaci[oó]n\s*pao", c, re.I)), None)
+    return c or "Validación PAO"
 
 def export_xlsx_force_4_sheets(dfs_by_trim: dict, filename: str):
     """Escribe SIEMPRE I/II/III/IV; si una hoja no tiene filas, se exporta con solo encabezados."""
@@ -84,11 +90,7 @@ def export_xlsx_force_4_sheets(dfs_by_trim: dict, filename: str):
                        file_name=filename,
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-def pao_col_name(df: pd.DataFrame) -> str:
-    c = next((c for c in df.columns if re.search(r"validaci[oó]n\s*pao", c, re.I)), None)
-    return c or "Validación PAO"
-
-# ================= Cargar archivo base =================
+# ============== Cargar archivo base ==============
 st.subheader("1) Cargar archivo base")
 uploaded = st.file_uploader("📂 Sube el Excel (IT/IIT o I/II/III/IV). Soporta 1–4 hojas.", type=["xlsx","xlsm"])
 if not uploaded:
@@ -98,12 +100,12 @@ if not uploaded:
 xls = pd.ExcelFile(uploaded)
 sheet_names = xls.sheet_names
 
-# Detectar por nombre; lo que falte se asigna por orden I → II → III → IV
+# Detección por nombre de hoja; lo faltante se asigna por orden
 PATTERNS = [
-    (r"^(it|i\s*tr|1t|primer|1)\b","I"),
-    (r"^(iit|ii\s*tr|2t|seg|segundo|2)\b","II"),
-    (r"^(iii|iii\s*tr|3t|terc|tercero|3)\b","III"),
-    (r"^(iv|iv\s*tr|4t|cuart|cuarto|4)\b","IV"),
+    (r"^(it|i\s*tr|1t|primer|1)\b", "I"),
+    (r"^(iit|ii\s*tr|2t|seg|segundo|2)\b", "II"),
+    (r"^(iii|iii\s*tr|3t|terc|tercero|3)\b", "III"),
+    (r"^(iv|iv\s*tr|4t|cuart|cuarto|4)\b", "IV"),
 ]
 def guess_trim(sn: str) -> str:
     s = sn.strip().lower()
@@ -122,38 +124,32 @@ for s in sheet_names:
             if lab not in used:
                 mapped[s] = lab; used.add(lab); break
 
-# Construir DF independiente por trimestre + detectar columnas H..N del archivo original
+# Construir DF por trimestre (independientes)
 dfs = {"I": None, "II": None, "III": None, "IV": None}
-cols_HN_global = set()
 for s, lab in mapped.items():
     if lab not in dfs: continue
-    raw = pd.read_excel(xls, sheet_name=s)
-    # columnas por posición H..N (0-based 7..13)
-    hn = list(raw.columns[7:14]) if raw.shape[1] > 7 else []
-    cols_HN_global.update([str(c) for c in hn])
-
-    df = clean_cols(raw)
+    df = pd.read_excel(xls, sheet_name=s)
+    df = clean_cols(df)
     df = standardize_delegacion_from_colD(df)
     df = ensure_columns(df, ["Fecha","Delegación","Trimestre","Instituciones"])
     df["Trimestre"] = lab
     df = ensure_row_id(df)
     dfs[lab] = df if dfs[lab] is None else pd.concat([dfs[lab], df], ignore_index=True)
 
-cols_HN_global = [c for c in cols_HN_global if c not in {"Fecha","Delegación","Trimestre","Instituciones"}]
-
-# DFs vacíos con columnas mínimas si faltan
-BASE_COLS = ["Fecha","Delegación","Trimestre","Instituciones","Validación PAO"]
+# Asegurar DFs vacíos con columnas mínimas
+BASE_COLS = ["Fecha","Delegación","Trimestre","Instituciones","Validación PAO","Tipo de actividad.","Observaciones."]
 for lab in dfs.keys():
     if dfs[lab] is None:
         dfs[lab] = ensure_row_id(pd.DataFrame(columns=BASE_COLS))
 
-# ================= Editor por hoja (independiente) =================
+# ============== Editor por hoja (independiente) ==============
 st.subheader("2) Editar por hoja (cada trimestre es independiente)")
 
 def hoja_editor(label: str):
     st.markdown(f"### {label} Trimestre")
     df = dfs[label].copy()
 
+    # Normalizar Sí/No (incluye PAO si existe)
     pao_col = pao_col_name(df)
     if pao_col not in df.columns: df[pao_col] = ""
     yesno_cols = detect_yesno_cols(df, extra_binary_cols=[pao_col])
@@ -222,34 +218,25 @@ with t2: hoja_editor("II")
 with t3: hoja_editor("III")
 with t4: hoja_editor("IV")
 
-# ================= FORMULARIO GLOBAL COMPLETO =================
-st.subheader("3) Formulario (completo) para agregar registros")
+# ============== Formulario GLOBAL (COMPLETO y FIJO) ==============
+st.subheader("3) Formulario para agregar registros (completo)")
 
 # Delegaciones sugeridas (de todas las hojas)
-all_delegs = sorted(
-    set(
-        d for lab in dfs
-        for d in dfs[lab].get("Delegación", pd.Series(dtype=str)).dropna().astype(str).map(str.strip).tolist()
-        if d
-    )
-)
+all_delegs = sorted(set(
+    d for lab in dfs
+    for d in dfs[lab].get("Delegación", pd.Series(dtype=str)).dropna().astype(str).map(str.strip).tolist()
+    if d
+))
 
-# Buscar nombres de columnas existentes para tipo y observaciones
+# Descubrir nombres de columnas existentes para Tipo/Observaciones (si ya están)
 def find_col_any(pat: str) -> str | None:
     for lab in dfs:
         for c in dfs[lab].columns:
-            if re.fullmatch(pat, c, flags=re.I):
-                return c
+            if re.fullmatch(pat, c, flags=re.I): return c
     return None
-col_tipo_any = find_col_any(r"tipo\s*de\s*actividad\.?")
-col_obs_any  = find_col_any(r"observaciones?\.?")
-
-# Columna PAO global
-def any_df() -> pd.DataFrame:
-    for lab in dfs:
-        if not dfs[lab].empty: return dfs[lab]
-    return pd.concat(dfs.values()).head(0)
-pao_global_col = pao_col_name(any_df())
+col_tipo_any = find_col_any(r"tipo\s*de\s*actividad\.?") or "Tipo de actividad."
+col_obs_any  = find_col_any(r"observaciones?\.?") or "Observaciones."
+pao_global_col = pao_col_name(pd.concat(dfs.values()).head(1))  # "Validación PAO" si no existe
 
 with st.form("form_add_global"):
     a, b, c, d = st.columns(4)
@@ -258,37 +245,18 @@ with st.form("form_add_global"):
     deleg_new = c.selectbox("Delegación", all_delegs + [""] if all_delegs else [""])
     pao_new   = d.selectbox("Validación PAO", ["","Sí","No"], index=0)
 
-    tipo_new = ""
-    if col_tipo_any:
-        tipos_cat = ["Rendición de cuentas","Seguimiento","Líneas de acción","Informe territorial"]
-        tipo_new = st.multiselect("Tipo de actividad (multi)", tipos_cat, default=[])
-        tipo_new = "; ".join(tipo_new) if tipo_new else ""
+    tipos_cat = ["Rendición de cuentas","Seguimiento","Líneas de acción","Informe territorial"]
+    tipo_new_sel = st.multiselect("Tipo de actividad (multi)", tipos_cat, default=[])
+    tipo_new = "; ".join(tipo_new_sel) if tipo_new_sel else ""
 
-    obs_new  = st.text_area(col_obs_any or "Observaciones", height=120)
+    obs_new  = st.text_area("Observaciones.", height=120)
     inst_new = st.text_input("Instituciones", "", placeholder="Ingrese instituciones…")
-
-    st.markdown("**Completar columnas H–N**")
-    # Determinar si alguna hoja usa estas columnas como Sí/No
-    yesno_lookup = {}
-    for col in cols_HN_global:
-        is_yesno = False
-        for lab in dfs:
-            if col in dfs[lab].columns and _is_yesno_col(dfs[lab][col]):
-                is_yesno = True; break
-        yesno_lookup[col] = is_yesno
-
-    valores_hn = {}
-    for col in cols_HN_global:
-        if yesno_lookup[col]:
-            valores_hn[col] = st.selectbox(col, ["","Sí","No"], index=0, key=f"hn_{col}")
-        else:
-            valores_hn[col] = st.text_input(col, value="", key=f"hn_{col}")
 
     enviar = st.form_submit_button("➕ Agregar registro")
 
 if enviar:
     # Asegurar columnas en la hoja destino
-    for col in [pao_global_col, col_tipo_any, col_obs_any, "Instituciones"] + cols_HN_global:
+    for col in [pao_global_col, col_tipo_any, col_obs_any, "Instituciones"]:
         if col and col not in dfs[trim_new].columns:
             dfs[trim_new][col] = ""
 
@@ -298,21 +266,20 @@ if enviar:
         "Delegación": deleg_new,
         "Trimestre": trim_new,
         "Instituciones": inst_new,
-        pao_global_col: pao_new
+        pao_global_col: pao_new,
+        col_tipo_any: tipo_new,
+        col_obs_any:  obs_new,
     }
-    if col_tipo_any: nuevo[col_tipo_any] = tipo_new
-    if col_obs_any:  nuevo[col_obs_any]  = obs_new
-    for col in cols_HN_global:
-        nuevo[col] = valores_hn.get(col, "")
 
     dfs[trim_new] = pd.concat([dfs[trim_new], pd.DataFrame([nuevo])], ignore_index=True)
     st.success(f"Registro agregado en {trim_new}.")
 
-# ================= Exportar =================
+# ============== Exportar ==============
 st.subheader("4) Exportar Excel (siempre 4 hojas)")
 export_xlsx_force_4_sheets(dfs, filename="seguimiento_trimestres_independiente.xlsx")
 
-st.caption("Editor por hoja + formulario global completo. Cada trimestre es independiente y Delegación se toma de la columna D del archivo cargado.")
+st.caption("Formulario fijo (sin campos dinámicos) + editor por hoja. Cada trimestre es independiente. Delegación siempre se toma de la columna D del archivo base.")
+
 
 
 
