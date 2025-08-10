@@ -10,16 +10,24 @@ from datetime import date
 st.set_page_config(page_title="Seguimiento por Trimestre — Editor y Generador", layout="wide")
 st.title("📘 Seguimiento por Trimestre — Lector + Editor + Formulario")
 
-# ============= LISTA OFICIAL (EDITA AQUÍ) =============
+# ============= LISTA OFICIAL (TAL CUAL LA ENVIASTE) =============
 OFFICIAL_DELEGACIONES = [
-    # 👉 Sustituye por tu lista oficial completa
-    "D36–Sarchí",
-    "D58–Sarapiquí",
-    "D59–Colorado",
-    "D89–Pococí",
-    "D93–Guácimo",
+    "Carmen","Merced","Hospital","Catedral","San Sebastián","Hatillo",
+    "Zapote / San Francisco","Pavas","Uruca","Curridabat","Montes de Oca",
+    "Goicoechea","Moravia","Tibás","Coronado","Desamparados Norte","Desamparados Sur",
+    "Aserri","Acosta","Alajuelita","Escazú","Santa Ana","Mora","Puriscal","Turrubares",
+    "Alajuela Sur","Alajuela Norte","San Ramón","Grecia","San Mateo","Atenas","Naranjo","Palmares",
+    "Poás","Orotina","Sarchí","Cartago","Paraíso","La Unión","Jiménez","Turrialba","Alvarado",
+    "Oreamuno","El Guarco","Tarrazú","Dota","León Cortéz","Guadalupe","Heredia","Barva",
+    "Santo Domingo","Santa Bárbara","San Rafael","San Isidro","Belén","Flores","San Pablo",
+    "Liberia","Nicoya","Santa Cruz","Bagaces","Carrillo","Cañas","Abangares","Tilarán",
+    "Nandayure","Hojancha","La Cruz","Puntarenas","Esparza","Montes de Oro","Quepos","Parrita",
+    "Garabito","Paquera","Judas de Chomes","Pérez Zeledón","Buenos Aires","Osa",
+    "San Carlos Este","San Carlos Oeste","Zarcero","Guatuso","Río Cuarto","Limón","Siquirres",
+    "Talamanca","Matina","Golfito","Coto Brus","Corredores","Puerto Jiménez","Upala",
+    "Los Chiles - Cutris - Pocosol","Sarapiquí","Colorado","Pococí","Guácimo"
 ]
-# =======================================================
+# ===============================================================
 
 # ===================== Helpers =====================
 def clean_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -28,8 +36,7 @@ def clean_cols(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def take_cols_H_to_N(df: pd.DataFrame):
-    """Nombres de columnas H..N (Excel H..N → 0-based 7..13)."""
-    start, end = 7, 14
+    start, end = 7, 14  # H..N
     end = min(end, df.shape[1])
     return list(df.columns[start:end]) if start < end else []
 
@@ -39,7 +46,7 @@ def add_trimestre(df: pd.DataFrame, label: str) -> pd.DataFrame:
     return df
 
 def standardize_delegacion_from_colD(df: pd.DataFrame) -> pd.DataFrame:
-    """Crea columna estándar 'Delegación' desde la columna D (índice 3) del Excel."""
+    """Crea columna estándar 'Delegación' desde la columna D (índice 3)."""
     df = df.copy()
     if df.shape[1] > 3:
         df["Delegación"] = df.iloc[:, 3]
@@ -59,7 +66,10 @@ def ensure_row_id(df: pd.DataFrame) -> pd.DataFrame:
         df["_row_id"] = [str(uuid.uuid4()) for _ in range(len(df))]
     return df
 
-# Sí/No helpers
+def _strip_accents(s: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
+
+# Sí/No
 def _norm_yesno(x: str) -> str:
     if x is None or (isinstance(x, float) and pd.isna(x)): return ""
     s = str(x).strip().lower()
@@ -73,7 +83,6 @@ def _is_yesno_column(series: pd.Series) -> bool:
     return vals.issubset({"Sí","No"}) and len(vals) <= 2
 
 def export_xlsx_force_4_sheets(dfs_by_trim: dict, filename: str):
-    """Escribe SIEMPRE hojas I/II/III/IV. Vacías → solo encabezados."""
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         sample = next((df for df in dfs_by_trim.values() if df is not None and not df.empty), None)
@@ -103,23 +112,23 @@ if "file_key" not in st.session_state or st.session_state["file_key"] != file_ke
     xls = pd.ExcelFile(archivo_base)
     sheet_names = xls.sheet_names
 
-    # Detección flexible de nombres de hoja
-    def _norm(s: str) -> str:
+    # Detección flexible de hojas
+    def _norm_name(s: str) -> str:
         s = s.strip().lower()
-        s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
-        s = re.sub(r'\s+', ' ', s)
+        s = _strip_accents(s)
+        s = re.sub(r"\s+", " ", s)
         return s
 
-    PAT_I  = [r'^i($|\b)', r'^i\s*tri', r'^it\b', r'^1($|\b)', r'^1\s*tri', r'^t1($|\b)', r'^q1($|\b)', r'^1er\b', r'^primer\b', r'^primero\b', r'^trimestre\s*i\b', r'^trim\s*i\b']
-    PAT_II = [r'^ii($|\b)', r'^ii\s*tri', r'^iit\b', r'^2($|\b)', r'^2\s*tri', r'^t2($|\b)', r'^q2($|\b)', r'^2do\b', r'^segundo?\b', r'^trimestre\s*ii\b', r'^trim\s*ii\b']
-    PAT_III= [r'^iii($|\b)', r'^iii\s*tri', r'^3($|\b)', r'^3\s*tri', r'^t3($|\b)', r'^q3($|\b)', r'^3er\b', r'^tercer(o)?\b', r'^trimestre\s*iii\b', r'^trim\s*iii\b']
-    PAT_IV = [r'^iv($|\b)', r'^iv\s*tri', r'^4($|\b)', r'^4\s*tri', r'^t4($|\b)', r'^q4($|\b)', r'^4to\b', r'^cuarto?\b', r'^trimestre\s*iv\b', r'^trim\s*iv\b']
+    PAT_I  = [r"^i($|\b)", r"^i\s*tri", r"^it\b", r"^1($|\b)", r"^1\s*tri", r"^t1($|\b)", r"^q1($|\b)", r"^1er\b", r"^primer\b", r"^primero\b", r"^trimestre\s*i\b", r"^trim\s*i\b"]
+    PAT_II = [r"^ii($|\b)", r"^ii\s*tri", r"^iit\b", r"^2($|\b)", r"^2\s*tri", r"^t2($|\b)", r"^q2($|\b)", r"^2do\b", r"^segundo?\b", r"^trimestre\s*ii\b", r"^trim\s*ii\b"]
+    PAT_III= [r"^iii($|\b)", r"^iii\s*tri", r"^3($|\b)", r"^3\s*tri", r"^t3($|\b)", r"^q3($|\b)", r"^3er\b", r"^tercer(o)?\b", r"^trimestre\s*iii\b", r"^trim\s*iii\b"]
+    PAT_IV = [r"^iv($|\b)", r"^iv\s*tri", r"^4($|\b)", r"^4\s*tri", r"^t4($|\b)", r"^q4($|\b)", r"^4to\b", r"^cuarto?\b", r"^trimestre\s*iv\b", r"^trim\s*iv\b"]
 
     def _match_any(s: str, pats: list[str]) -> bool:
         return any(re.search(p, s, re.I) for p in pats)
 
     def guess_trim(sheet_name: str) -> str:
-        s = _norm(sheet_name)
+        s = _norm_name(sheet_name)
         if _match_any(s, PAT_I): return "I"
         if _match_any(s, PAT_II): return "II"
         if _match_any(s, PAT_III): return "III"
@@ -208,17 +217,20 @@ yesno_cols = set(st.session_state["yesno_cols"])
 st.subheader("2) Filtros")
 
 # 👉 SIEMPRE usar la lista oficial (no lo que venga en el Excel)
-delegaciones = sorted(OFFICIAL_DELEGACIONES)
-
+delegaciones = OFFICIAL_DELEGACIONES[:]  # mantener tu orden
 deleg_sel = st.selectbox("🏢 Delegación", options=["(Todas)"] + delegaciones, index=0)
 trims_sel = st.multiselect("🗓️ Trimestres", options=["I","II","III","IV"], default=["I","II","III","IV"])
 
+# Filtro: coincidencia por subcadena, ignorando acentos y mayúsculas
+def match_delegation(series: pd.Series, name: str) -> pd.Series:
+    if not name:
+        return pd.Series([True]*len(series), index=series.index)
+    key = _strip_accents(name).lower()
+    return series.astype(str).map(lambda x: key in _strip_accents(x).lower() if pd.notna(x) else False)
+
 df_filtrado = df_all.copy()
 if deleg_sel != "(Todas)":
-    # Comparar por código (antes del guion) para tolerar formatos distintos
-    code_sel = deleg_sel.split("–")[0].split("-")[0].strip()
-    df_filtrado = df_filtrado[df_filtrado["Delegación"].astype(str).str.contains(rf"\b{re.escape(code_sel)}\b",
-                                                                                 case=False, na=False)]
+    df_filtrado = df_filtrado[match_delegation(df_filtrado["Delegación"], deleg_sel)]
 if trims_sel:
     df_filtrado = df_filtrado[df_filtrado["Trimestre"].isin(trims_sel)]
 
@@ -229,7 +241,7 @@ for c in cols_mostrar:
     if c not in df_all.columns:
         df_all[c] = "" if c != "Fecha" else pd.NaT
 
-# ⚠️ Realinear después de crear columnas nuevas
+# Realinear después de crear columnas
 df_filtrado = df_all.loc[df_filtrado.index]
 cols_editor = [c for c in cols_mostrar if c in df_all.columns] + ["_row_id"]
 
@@ -334,7 +346,7 @@ with st.form("form_add"):
     a, b, c, d = st.columns(4)
     fecha_new = a.date_input("Fecha", value=date.today())
     trim_new  = b.selectbox("Trimestre", ["I","II","III","IV"], index=2)
-    deleg_new = c.selectbox("Delegación", [""] + sorted(OFFICIAL_DELEGACIONES), index=0)
+    deleg_new = c.selectbox("Delegación", [""] + OFFICIAL_DELEGACIONES, index=0)  # ← lista oficial
     pao_new   = d.selectbox("Validación PAO", ["", "Sí", "No"], index=0)
 
     seg_new = st.selectbox(COL_SEGUIMIENTO, ["", "Sí", "No"], index=0)
@@ -403,12 +415,7 @@ dfs_by_trim = {
 }
 export_xlsx_force_4_sheets(dfs_by_trim, filename="seguimiento_trimestres_generado.xlsx")
 
-st.caption("Delegación se carga desde columna D del Excel; los selectores usan solo tu lista oficial.")
-
-
-
-
-
+st.caption("Delegación se carga desde columna D del Excel; los selectores usan solo tu lista oficial; coincidencia de filtro por subcadena sin acentos.")
 
 
 
