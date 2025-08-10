@@ -1,20 +1,21 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import io
 import re
 import uuid
 
-st.set_page_config(page_title="Seguimiento por Trimestre (IT/IIT) — Editar y crear III/IV", layout="wide")
-st.title("📘 Seguimiento por Trimestre — Lector + Editor + Formulario")
+st.set_page_config(page_title="Seguimiento por Trimestre — Editor y Generador", layout="wide")
+st.title("📘 Seguimiento por Trimestre — Lector + Editor + Formulario (Delegación = Columna D)")
 
-# ------------------------ helpers ------------------------
+# ===================== Helpers =====================
 def clean_cols(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
 def take_cols_H_to_N(df: pd.DataFrame):
-    """Nombres de columnas H..N por posición (Excel H..N → 0-based 7..13)."""
+    """Devuelve nombres de columnas H..N por posición (Excel H..N → 0-based 7..13)."""
     start, end = 7, 14
     end = min(end, df.shape[1])
     return list(df.columns[start:end]) if start < end else []
@@ -32,26 +33,16 @@ def standardize_delegacion_from_colD(df: pd.DataFrame) -> pd.DataFrame:
     else:
         df["Delegación"] = ""
     drop_like = [c for c in df.columns if c != "Delegación" and re.search(r"delegaci[oó]n", str(c), re.I)]
-    df = df.drop(columns=drop_like)
+    if drop_like:
+        df = df.drop(columns=drop_like)
     return df
 
 def find_col_by_exact(df, pat):
+    """Busca columna por nombre exacto (regex) insensible a mayúsculas."""
     for c in df.columns:
         if re.fullmatch(pat, c, flags=re.I):
             return c
     return None
-
-def export_xlsx(dfs_by_sheet: dict, filename: str):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        for sheet, dfx in dfs_by_sheet.items():
-            dfx.to_excel(writer, index=False, sheet_name=sheet[:31])
-    st.download_button(
-        "📥 Descargar Excel",
-        data=output.getvalue(),
-        file_name=filename,
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
 
 def ensure_row_id(df: pd.DataFrame) -> pd.DataFrame:
     """Agrega un ID estable por fila para poder reconciliar ediciones."""
@@ -60,9 +51,47 @@ def ensure_row_id(df: pd.DataFrame) -> pd.DataFrame:
         df["_row_id"] = [str(uuid.uuid4()) for _ in range(len(df))]
     return df
 
-# ------------------------ 1) Cargar archivo base (IT y IIT) ------------------------
+# ---- Sí/No detection/normalization
+def _norm_yesno(x: str) -> str:
+    if x is None or (isinstance(x, float) and pd.isna(x)):
+        return ""
+    s = str(x).strip().lower()
+    if s in {"si", "sí", "s", "yes", "y"}: return "Sí"
+    if s in {"no", "n"}: return "No"
+    return ""
+
+def _is_yesno_column(series: pd.Series) -> bool:
+    """Detecta si una columna parece ser 'Sí/No' (admite vacíos)."""
+    if series.empty:
+        return False
+    vals = set(_norm_yesno(v) for v in series.dropna().unique())
+    return vals.issubset({"Sí", "No"}) and len(vals) <= 2
+
+def export_xlsx_force_4_sheets(dfs_by_trim: dict, filename: str):
+    """Escribe SIEMPRE las 4 hojas I/II/III/IV. Si un trimestre está vacío, crea la hoja con encabezados."""
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        # Encabezados estándar (de la primera tabla no vacía)
+        sample = next((df for df in dfs_by_trim.values() if df is not None and not df.empty), None)
+        cols = list(sample.columns) if sample is not None else []
+
+        for t, sheet_name in [("I","I Trimestre"),("II","II Trimestre"),("III","III Trimestre"),("IV","IV Trimestre")]:
+            df = dfs_by_trim.get(t)
+            if df is None or df.empty:
+                pd.DataFrame(columns=cols).to_excel(writer, index=False, sheet_name=sheet_name[:31])
+            else:
+                df.to_excel(writer, index=False, sheet_name=sheet_name[:31])
+
+    st.download_button(
+        "📥 Descargar Excel",
+        data=output.getvalue(),
+        file_name=filename,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+# ===================== 1) Cargar archivo base (IT y IIT) =====================
 st.subheader("1) Cargar archivo base (IT y IIT)")
-archivo_base = st.file_uploader("📁 Sube el Excel (contiene IT e IIT)", type=["xlsx", "xlsm"])
+archivo_base = st.file_uploader("📂 Sube el Excel (contiene IT e IIT)", type=["xlsx", "xlsm"])
 if not archivo_base:
     st.info("Sube el archivo para continuar.")
     st.stop()
@@ -91,7 +120,7 @@ df_it  = pd.read_excel(xls, sheet_name=sheet_it)
 df_iit = pd.read_excel(xls, sheet_name=sheet_iit)
 df_it, df_iit = clean_cols(df_it), clean_cols(df_iit)
 
-# Estandarizar Delegación desde D
+# Delegación desde D
 df_it  = standardize_delegacion_from_colD(df_it)
 df_iit = standardize_delegacion_from_colD(df_iit)
 
@@ -99,24 +128,39 @@ df_iit = standardize_delegacion_from_colD(df_iit)
 df_it  = add_trimestre(df_it, "I")
 df_iit = add_trimestre(df_iit, "II")
 
-# Columnas H..N para usar en formulario/edición
+# H..N por posición (nombres reales)
 cols_HN_it  = take_cols_H_to_N(df_it)
 cols_HN_iit = take_cols_H_to_N(df_iit)
 cols_HN = cols_HN_it if len(cols_HN_it) >= len(cols_HN_iit) else cols_HN_iit
 
-# Detectar columnas tipo/observaciones si existen
+# Detectar Tipo y Observaciones por nombre si existen
 col_tipo = find_col_by_exact(df_it, r"tipo\s*de\s*actividad\.?") or find_col_by_exact(df_iit, r"tipo\s*de\s*actividad\.?")
-col_obs  = find_col_by_exact(df_it, r"observaciones\.?") or find_col_by_exact(df_iit, r"observaciones\.?")
+col_obs  = find_col_by_exact(df_it, r"observaciones?\.?") or find_col_by_exact(df_iit, r"observaciones?\.?")
 
-# Consolidado + ID de fila
+# Consolidado + ID
 df_all = pd.concat([df_it, df_iit], ignore_index=True)
 df_all = ensure_row_id(df_all)
 
-# ------------------------ 2) Filtros ------------------------
+# Detectar/normalizar PAO y columnas Sí/No (incluye H–N)
+col_pao = next((c for c in df_all.columns if re.search(r"validaci[oó]n\s*pao", c, re.I)), "Validación PAO")
+if col_pao not in df_all.columns:
+    df_all[col_pao] = ""
+
+yesno_cols = [col_pao]
+for c in df_all.columns:
+    if c in {"Delegación", "Trimestre", "_row_id"} or c in yesno_cols:
+        continue
+    if df_all[c].dtype == "O" and _is_yesno_column(df_all[c]):
+        yesno_cols.append(c)
+# Normalizar Sí/No
+for c in yesno_cols:
+    df_all[c] = df_all[c].map(_norm_yesno)
+
+# ===================== 2) Filtros =====================
 st.subheader("2) Filtros")
 delegaciones = sorted([d for d in df_all["Delegación"].dropna().astype(str).map(str.strip).unique() if d])
-deleg_sel = st.selectbox("Delegación (columna D)", options=["(Todas)"] + delegaciones, index=0)
-trims_sel = st.multiselect("Trimestres", options=["I","II","III","IV"], default=["I","II"])
+deleg_sel = st.selectbox("🏢 Delegación (columna D)", options=["(Todas)"] + delegaciones, index=0)
+trims_sel = st.multiselect("🗓️ Trimestres", options=["I","II","III","IV"], default=["I","II"])
 
 df_filtrado = df_all.copy()
 if deleg_sel != "(Todas)":
@@ -124,181 +168,162 @@ if deleg_sel != "(Todas)":
 if trims_sel:
     df_filtrado = df_filtrado[df_filtrado["Trimestre"].isin(trims_sel)]
 
-# Columnas principales a mostrar/editar
+# Columnas visibles/editar
 cols_base = ["Delegación", "Trimestre"] + [c for c in [col_tipo, col_obs] if c]
-cols_mostrar = cols_base + [c for c in cols_HN if c not in cols_base]
-# Añadir el ID oculto para poder reconciliar
+cols_mostrar = cols_base + [c for c in cols_HN if c not in cols_base] + [col_pao]
 cols_editor = cols_mostrar + ["_row_id"]
+
+# ===================== 3) Editor =====================
+st.subheader("3) Editor por delegación (editar, agregar o eliminar filas)")
+
 df_ed = df_filtrado[cols_editor].copy()
-
-# ------------------------ 3) Editor (editar / agregar / eliminar) ------------------------
-st.subheader("3) Editor por delegación (puedes editar, agregar o eliminar filas)")
-
-# Agregar columna de control 'Eliminar' para permitir borrar filas desde el editor
 df_ed["Eliminar"] = False
+
+# Config: Select Sí/No para columnas binarias
+col_config = {
+    "_row_id": st.column_config.TextColumn("ID (interno)", disabled=True),
+    "Eliminar": st.column_config.CheckboxColumn("Eliminar"),
+}
+for c in yesno_cols:
+    if c in df_ed.columns:
+        col_config[c] = st.column_config.SelectboxColumn(c, options=["", "Sí", "No"], required=False)
 
 edited = st.data_editor(
     df_ed,
-    num_rows="dynamic",  # permite agregar nuevas filas
+    num_rows="dynamic",                   # permite agregar nuevas filas
     use_container_width=True,
     height=420,
-    column_config={
-        "_row_id": st.column_config.TextColumn("ID (interno)", disabled=True),
-        "Eliminar": st.column_config.CheckboxColumn("Eliminar"),
-    },
+    column_config=col_config,
     hide_index=True,
     key="editor",
 )
 
-colE1, colE2, colE3 = st.columns(3)
+colE1, colE2, colE3, colE4 = st.columns(4)
 with colE1:
-    do_quick_add_iii = st.button("➕ Agregar fila base a III", help="Crea una fila en blanco para el Trimestre III, usando la delegación seleccionada.")
+    do_quick_add_iii = st.button("➕ Fila base a III", use_container_width=True)
 with colE2:
-    do_quick_add_iv  = st.button("➕ Agregar fila base a IV", help="Crea una fila en blanco para el Trimestre IV, usando la delegación seleccionada.")
+    do_quick_add_iv  = st.button("➕ Fila base a IV", use_container_width=True)
 with colE3:
-    apply_changes = st.button("💾 Guardar cambios en el consolidado")
+    delete_now       = st.button("🗑️ Eliminar seleccionados", use_container_width=True)
+with colE4:
+    apply_changes    = st.button("💾 Guardar cambios", use_container_width=True)
 
-# Crear fila base III/IV para la delegación seleccionada
 def blank_row_for_trim(trim_label: str):
     base = {k: "" for k in cols_mostrar}
     base["Delegación"] = (deleg_sel if deleg_sel != "(Todas)" else "")
     base["Trimestre"]  = trim_label
+    for c in yesno_cols:
+        if c in base: base[c] = ""
     base["_row_id"]    = str(uuid.uuid4())
     return base
 
 if do_quick_add_iii:
-    new_row = blank_row_for_trim("III")
-    df_all = pd.concat([df_all, pd.DataFrame([new_row])], ignore_index=True)
-    st.success("Se agregó una fila base al Trimestre III. (Aparecerá cuando recargues filtros o al exportar)")
+    df_all = pd.concat([df_all, pd.DataFrame([blank_row_for_trim("III")])], ignore_index=True)
+    st.success("Fila base creada en III.")
 
 if do_quick_add_iv:
-    new_row = blank_row_for_trim("IV")
-    df_all = pd.concat([df_all, pd.DataFrame([new_row])], ignore_index=True)
-    st.success("Se agregó una fila base al Trimestre IV. (Aparecerá cuando recargues filtros o al exportar)")
+    df_all = pd.concat([df_all, pd.DataFrame([blank_row_for_trim("IV")])], ignore_index=True)
+    st.success("Fila base creada en IV.")
 
-# Aplicar cambios del editor al consolidado
-if apply_changes:
-    # Separar filas marcadas para eliminar
+# Eliminar seleccionados
+if delete_now:
     to_delete_ids = set(edited.loc[edited["Eliminar"] == True, "_row_id"].astype(str).tolist())
-
-    # Filas editadas (sin la columna 'Eliminar')
-    edited_clean = edited.drop(columns=["Eliminar"]).copy()
-
-    # 1) Eliminar en df_all las filas seleccionadas
     if to_delete_ids:
         df_all = df_all[~df_all["_row_id"].astype(str).isin(to_delete_ids)]
+        st.success(f"Eliminadas {len(to_delete_ids)} fila(s).")
+    else:
+        st.info("Marca 'Eliminar' en al menos una fila.")
 
-    # 2) Reconcilia: para cada _row_id presente en edited_clean, actualiza columnas visibles
-    #    (editor pudo agregar filas nuevas con _row_id vacío → creamos uno)
-    for idx, row in edited_clean.iterrows():
-        rid = str(row["_row_id"]) if pd.notna(row["_row_id"]) and str(row["_row_id"]).strip() else str(uuid.uuid4())
-        # Si es fila nueva (no existe en df_all), la insertamos
-        if rid not in set(df_all["_row_id"].astype(str)):
-            new_entry = {c: row.get(c, "") for c in cols_mostrar}
-            new_entry["_row_id"] = rid
+# Guardar cambios del editor en el consolidado
+if apply_changes:
+    edited_clean = edited.drop(columns=["Eliminar"]).copy()
+
+    for _, row in edited_clean.iterrows():
+        rid = str(row["_row_id"]).strip() if pd.notna(row["_row_id"]) else ""
+        if not rid:
+            # nueva fila
+            rid = str(uuid.uuid4())
+            row["_row_id"] = rid
+            new_entry = {c: row.get(c, "") for c in cols_mostrar + ["_row_id"]}
             df_all = pd.concat([df_all, pd.DataFrame([new_entry])], ignore_index=True)
         else:
-            # actualizar columnas editables
+            # actualizar fila existente
             mask = df_all["_row_id"].astype(str).eq(rid)
             for c in cols_mostrar:
                 if c in edited_clean.columns:
                     df_all.loc[mask, c] = row.get(c, "")
+    # normalizar Sí/No otra vez por si se editaron
+    for c in yesno_cols:
+        if c in df_all.columns:
+            df_all[c] = df_all[c].map(_norm_yesno)
 
-    st.success("Cambios aplicados al consolidado.")
+    st.success("Cambios guardados.")
 
-# ------------------------ 4) Formulario rápido (opcional, sigue disponible) ------------------------
+# ===================== 4) Formulario rápido =====================
 st.subheader("4) Formulario rápido para agregar filas")
 with st.form("form_add_quick"):
     c1, c2, c3 = st.columns(3)
-    trim_new = c1.selectbox("Trimestre", ["I","II","III","IV"], index=2)  # por defecto III
-    pao_new  = c2.selectbox("Validación PAO", ["Sí", "No"], index=0)
-    deleg_new = c3.selectbox("Delegación", delegaciones if delegaciones else [deleg_sel if deleg_sel!="(Todas)" else ""])
+    trim_new   = c1.selectbox("Trimestre", ["I", "II", "III", "IV"], index=2)
+    deleg_new  = c3.selectbox("Delegación", sorted([deleg_sel] + delegaciones) if delegaciones else [""])
 
-    # Intentar reutilizar nombres de columnas si existen
-    tipos_catalogo = ["Rendición de cuentas", "Seguimiento", "Líneas de acción", "Informe territorial"]
+    # PAO (Sí/No)
+    pao_new    = c2.selectbox("Validación PAO", ["", "Sí", "No"], index=0)
+
     tipo_new = ""
     if col_tipo:
+        tipos_catalogo = ["Rendición de cuentas", "Seguimiento", "Líneas de acción", "Informe territorial"]
         tipo_new = st.multiselect("Tipo de actividad (multi)", tipos_catalogo, default=[])
         tipo_new = "; ".join(tipo_new) if tipo_new else ""
-    obs_new = st.text_area("Observaciones", height=100) if col_obs else ""
 
-    st.markdown("**Completar columnas H–N (nombres reales)**")
+    obs_new = st.text_area(col_obs or "Observaciones", height=100)
+
+    st.markdown("**Completar columnas H–N**")
     valores_hn = {}
     for col in cols_HN:
-        valores_hn[col] = st.text_input(col, value="")
+        if col in yesno_cols:
+            valores_hn[col] = st.selectbox(col, ["", "Sí", "No"], index=0)
+        else:
+            valores_hn[col] = st.text_input(col, value="")
 
     enviado = st.form_submit_button("➕ Agregar registro")
 
 if enviado:
     nuevo = {"Delegación": deleg_new, "Trimestre": trim_new, "_row_id": str(uuid.uuid4())}
-    col_pao = next((c for c in df_all.columns if re.search(r"validaci[oó]n\s*pao", c, re.I)), "Validación PAO")
-    nuevo[col_pao] = pao_new
+    nuevo["Validación PAO" if "Validación PAO" in df_all.columns else next((c for c in yesno_cols if re.search(r"validaci[oó]n\s*pao", c, re.I)), "Validación PAO")] = pao_new
     if col_tipo: nuevo[col_tipo] = tipo_new
     if col_obs:  nuevo[col_obs]  = obs_new
     for col in cols_HN:
         nuevo[col] = valores_hn.get(col, "")
     df_all = pd.concat([df_all, pd.DataFrame([nuevo])], ignore_index=True)
-    st.success("Registro agregado al consolidado.")
+    st.success("Registro agregado.")
 
-# ------------------------ 5) Generar Excel (nuevo o actualizar) ------------------------
-st.subheader("5) Generar Excel nuevo o actualizar uno anterior")
-modo = st.radio("¿Cómo quieres generar el archivo final?", ["Empezar uno nuevo", "Actualizar un Excel anterior"], index=0)
+# ===================== 5) Vista por 'hojas' (tabs) =====================
+st.subheader("📑 Vista por 'hojas' (I/II/III/IV)")
+t1, t2, t3, t4 = st.tabs(["I Trimestre", "II Trimestre", "III Trimestre", "IV Trimestre"])
+with t1:
+    st.dataframe(df_all[df_all["Trimestre"]=="I"], use_container_width=True, height=300)
+with t2:
+    st.dataframe(df_all[df_all["Trimestre"]=="II"], use_container_width=True, height=300)
+with t3:
+    st.dataframe(df_all[df_all["Trimestre"]=="III"], use_container_width=True, height=300)
+with t4:
+    st.dataframe(df_all[df_all["Trimestre"]=="IV"], use_container_width=True, height=300)
 
-df_final = df_all.copy()
+# ===================== 6) Exportación (siempre 4 hojas) =====================
+st.subheader("6) Descargar Excel (siempre con 4 hojas)")
+# Quitar duplicados exactos ignorando _row_id
+export_cols = [c for c in df_all.columns if c != "_row_id"]
+df_export = df_all[export_cols].drop_duplicates()
 
-if modo == "Actualizar un Excel anterior":
-    prev = st.file_uploader("📎 Excel anterior para combinar (opcional)", type=["xlsx","xlsm"], key="prev_x")
-    if prev:
-        try:
-            xold = pd.ExcelFile(prev)
-            frames = [pd.read_excel(xold, sheet_name=sh) for sh in xold.sheet_names]
-            old_df = pd.concat(frames, ignore_index=True)
-            old_df = clean_cols(old_df)
+dfs_by_trim = {
+    "I":   df_export[df_export["Trimestre"]=="I"],
+    "II":  df_export[df_export["Trimestre"]=="II"],
+    "III": df_export[df_export["Trimestre"]=="III"],
+    "IV":  df_export[df_export["Trimestre"]=="IV"],
+}
+export_xlsx_force_4_sheets(dfs_by_trim, filename="seguimiento_trimestres_generado.xlsx")
 
-            # Estandarizar 'Delegación' en el archivo anterior si no existe
-            if "Delegación" not in old_df.columns:
-                if old_df.shape[1] > 3:
-                    old_df["Delegación"] = old_df.iloc[:, 3]
-                else:
-                    old_df["Delegación"] = ""
-
-            # Quitar columnas parecidas a 'delegación'
-            drop_like = [c for c in old_df.columns if c != "Delegación" and re.search(r"delegaci[oó]n", str(c), re.I)]
-            old_df = old_df.drop(columns=drop_like)
-
-            df_final = pd.concat([old_df, df_all], ignore_index=True)
-            st.info(f"Se combinó el archivo anterior ({len(old_df)} filas) con el actual.")
-        except Exception as e:
-            st.error(f"No se pudo leer el archivo anterior: {e}")
-
-# Quitar duplicados exactos (ignoramos el ID)
-if "_row_id" in df_final.columns:
-    export_cols = [c for c in df_final.columns if c != "_row_id"]
-else:
-    export_cols = list(df_final.columns)
-df_final = df_final[export_cols].drop_duplicates()
-
-with st.expander("🔎 Vista previa del Excel a generar"):
-    st.dataframe(df_final, use_container_width=True, height=420)
-
-# Exportar creando hojas por trimestre (I, II, III, IV) según existan
-sheets = {}
-for t in ["I","II","III","IV"]:
-    parte = df_final[df_final["Trimestre"] == t]
-    if not parte.empty:
-        sheets[f"{t} Trimestre"] = parte
-if not sheets:
-    sheets = {"Datos": df_final}
-
-export_xlsx(sheets, filename="seguimiento_trimestres_generado.xlsx")
-
-st.caption(
-    "Ahora puedes **editar filas** del filtro por delegación, **agregar** filas nuevas, "
-    "y crear registros en **III/IV**. Al exportar, si hay filas de esos trimestres, "
-    "se crean las hojas correspondientes automáticamente."
-)
-
-
+st.caption("Delegación se toma SIEMPRE de la columna D. Editor con Sí/No automáticos en PAO y H–N. Exportación fija con 4 hojas (I/II/III/IV).")
 
 
 
