@@ -6,7 +6,7 @@ import re
 import uuid
 
 st.set_page_config(page_title="Seguimiento por Trimestre — Editor y Generador", layout="wide")
-st.title("📘 Seguimiento por Trimestre — Lector + Editor + Formulario (Delegación = Columna D)")
+st.title("📘 Seguimiento por Trimestre — Lector + Editor + Formulario")
 
 # ===================== Helpers =====================
 def clean_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -324,6 +324,7 @@ dfs_by_trim = {
 export_xlsx_force_4_sheets(dfs_by_trim, filename="seguimiento_trimestres_generado.xlsx")
 
 st.caption("Delegación se toma SIEMPRE de la columna D. Editor con Sí/No automáticos en PAO y H–N. Exportación fija con 4 hojas (I/II/III/IV).")
+
 
 
 
