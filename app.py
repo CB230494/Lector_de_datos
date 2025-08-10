@@ -51,20 +51,16 @@ def ensure_row_id(df: pd.DataFrame) -> pd.DataFrame:
 
 # Sí/No
 def _norm_yesno(x: str) -> str:
-    if x is None or (isinstance(x, float) and pd.isna(x)):
-        return ""
+    if x is None or (isinstance(x, float) and pd.isna(x)): return ""
     s = str(x).strip().lower()
-    if s in {"si", "sí", "s", "yes", "y"}:
-        return "Sí"
-    if s in {"no", "n"}:
-        return "No"
+    if s in {"si", "sí", "s", "yes", "y"}: return "Sí"
+    if s in {"no", "n"}: return "No"
     return ""
 
 def _is_yesno_column(series: pd.Series) -> bool:
-    if series.empty:
-        return False
+    if series.empty: return False
     vals = set(_norm_yesno(v) for v in series.dropna().unique())
-    return vals.issubset({"Sí", "No"}) and len(vals) <= 2
+    return vals.issubset({"Sí","No"}) and len(vals) <= 2
 
 def export_xlsx_force_4_sheets(dfs_by_trim: dict, filename: str):
     """Escribe SIEMPRE hojas I/II/III/IV. Vacías → solo encabezados."""
@@ -72,18 +68,21 @@ def export_xlsx_force_4_sheets(dfs_by_trim: dict, filename: str):
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         sample = next((df for df in dfs_by_trim.values() if df is not None and not df.empty), None)
         cols = list(sample.columns) if sample is not None else []
-        for t, sheet_name in [("I", "I Trimestre"), ("II", "II Trimestre"),
-                              ("III", "III Trimestre"), ("IV", "IV Trimestre")]:
+        for t, sheet_name in [("I","I Trimestre"),("II","II Trimestre"),("III","III Trimestre"),("IV","IV Trimestre")]:
             df = dfs_by_trim.get(t)
-            (df if df is not None and not df.empty else pd.DataFrame(columns=cols)) \
+            (df if df is not None and not df.empty else pd.DataFrame(columns=cols))\
                 .to_excel(writer, index=False, sheet_name=sheet_name[:31])
     st.download_button("📥 Descargar Excel", data=output.getvalue(),
                        file_name=filename,
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+# Columnas canónicas de Sí/No que quieres en el formulario
+COL_SEGUIMIENTO = "Seguimiento líneas de acción"
+COL_ACUERDOS    = "¿Hubo acuerdos inter-institucionales concretos en esta sesión?"
+
 # ===================== 1) Cargar archivo base (1–4 trimestres, auto) =====================
 st.subheader("1) Cargar archivo base (auto-detección 1–4 trimestres)")
-archivo_base = st.file_uploader("📂 Sube el Excel (IT/IIT o I/II/III/IV)", type=["xlsx", "xlsm"])
+archivo_base = st.file_uploader("📂 Sube el Excel (IT/IIT o I/II/III/IV)", type=["xlsx","xlsm"])
 if not archivo_base:
     st.info("Sube el archivo para continuar.")
     st.stop()
@@ -96,17 +95,15 @@ if "file_key" not in st.session_state or st.session_state["file_key"] != file_ke
     sheet_names = xls.sheet_names
 
     TRIM_MAP_PATTERNS = [
-        (r"^(it|i\s*tr|1t|primer|1)\b", "I"),
+        (r"^(it|i\s*tr|1t|primer|1)\b",  "I"),
         (r"^(iit|ii\s*tr|2t|seg|segundo|2)\b", "II"),
         (r"^(iii|iii\s*tr|3t|terc|tercero|3)\b", "III"),
-        (r"^(iv|iv\s*tr|4t|cuart|cuarto|4)\b", "IV"),
+        (r"^(iv|iv\s*tr|4t|cuart|cuarto|4)\b",  "IV"),
     ]
-
     def guess_trim(sheet_name: str) -> str:
         s = sheet_name.strip().lower()
         for pat, lab in TRIM_MAP_PATTERNS:
-            if re.search(pat, s):
-                return lab
+            if re.search(pat, s): return lab
         return ""
 
     # Solo mapeamos hojas que COINCIDEN; NO se rellenan por orden
@@ -143,67 +140,63 @@ if "file_key" not in st.session_state or st.session_state["file_key"] != file_ke
     def find_in_frames(frames, pat):
         for d in frames:
             c = find_col_by_exact(d, pat)
-            if c:
-                return c
+            if c: return c
         return None
-
     col_tipo = find_in_frames(frames, r"tipo\s*de\s*actividad\.?")
-    col_obs = find_in_frames(frames, r"observaciones?\.?")
+    col_obs  = find_in_frames(frames, r"observaciones?\.?")
 
     # Asegurar Fecha e Instituciones
-    if "Fecha" not in df_all.columns:
-        df_all["Fecha"] = pd.NaT
-    if "Instituciones" not in df_all.columns:
-        df_all["Instituciones"] = ""
+    if "Fecha" not in df_all.columns: df_all["Fecha"] = pd.NaT
+    if "Instituciones" not in df_all.columns: df_all["Instituciones"] = ""
 
-    # PAO + columnas Sí/No (incluye H–N) con HINTS de nombres
+    # ======= Forzar columnas Sí/No (PAO + 2 canónicas) =======
     col_pao = next((c for c in df_all.columns if re.search(r"validaci[oó]n\s*pao", c, re.I)), "Validación PAO")
-    if col_pao not in df_all.columns:
-        df_all[col_pao] = ""
+    if col_pao not in df_all.columns: df_all[col_pao] = ""
 
-    yesno_cols = {col_pao}
-    # Hints por nombre — forzar estas dos + PAO
+    # set de columnas Sí/No
+    yesno_cols = {col_pao, COL_SEGUIMIENTO, COL_ACUERDOS}
+
+    # además, detectar otras por contenido o nombre
     YESNO_NAME_HINTS = [
         r"validaci[oó]n\s*pao",
         r"^seguimiento\s+líneas\s+de\s+acci[oó]n$",
         r"^¿\s*hubo\s+acuerdos\s+inter[- ]?institucionales.*",
     ]
     for c in df_all.columns:
-        if c in {"Delegación", "Trimestre", "_row_id", "Fecha", "Instituciones"}:
+        if c in {"Delegación","Trimestre","_row_id","Fecha","Instituciones"}: 
             continue
-        if any(re.search(pat, c, re.I) for pat in YESNO_NAME_HINTS):
-            yesno_cols.add(c)
-        elif df_all[c].dtype == "O" and _is_yesno_column(df_all[c]):
+        if any(re.search(pat, c, re.I) for pat in YESNO_NAME_HINTS) or \
+           (df_all[c].dtype == "O" and _is_yesno_column(df_all[c])):
             yesno_cols.add(c)
 
-    # Crear si no existen y normalizar
+    # Crear si no existen + normalizar
     for c in yesno_cols:
         if c not in df_all.columns:
             df_all[c] = ""
         df_all[c] = df_all[c].map(_norm_yesno)
 
     # Guardar en sesión
-    st.session_state["file_key"] = file_key
-    st.session_state["df_all"] = df_all
-    st.session_state["cols_HN"] = cols_HN
-    st.session_state["col_tipo"] = col_tipo
-    st.session_state["col_obs"] = col_obs
-    st.session_state["col_pao"] = col_pao
+    st.session_state["file_key"]   = file_key
+    st.session_state["df_all"]     = df_all
+    st.session_state["cols_HN"]    = cols_HN
+    st.session_state["col_tipo"]   = col_tipo
+    st.session_state["col_obs"]    = col_obs
+    st.session_state["col_pao"]    = col_pao
     st.session_state["yesno_cols"] = list(yesno_cols)
 
 # Usar SIEMPRE lo que está en sesión (persistente entre reruns)
-df_all = st.session_state["df_all"].copy()
-cols_HN = st.session_state["cols_HN"]
-col_tipo = st.session_state["col_tipo"]
-col_obs = st.session_state["col_obs"]
-col_pao = st.session_state["col_pao"]
+df_all     = st.session_state["df_all"].copy()
+cols_HN    = st.session_state["cols_HN"]
+col_tipo   = st.session_state["col_tipo"]
+col_obs    = st.session_state["col_obs"]
+col_pao    = st.session_state["col_pao"]
 yesno_cols = set(st.session_state["yesno_cols"])
 
 # ===================== 2) Filtros =====================
 st.subheader("2) Filtros")
 delegaciones = sorted([d for d in df_all["Delegación"].dropna().astype(str).map(str.strip).unique() if d])
 deleg_sel = st.selectbox("🏢 Delegación (columna D)", options=["(Todas)"] + delegaciones, index=0)
-trims_sel = st.multiselect("🗓️ Trimestres", options=["I", "II", "III", "IV"], default=["I", "II", "III", "IV"])
+trims_sel = st.multiselect("🗓️ Trimestres", options=["I","II","III","IV"], default=["I","II","III","IV"])
 
 df_filtrado = df_all.copy()
 if deleg_sel != "(Todas)":
@@ -212,8 +205,8 @@ if trims_sel:
     df_filtrado = df_filtrado[df_filtrado["Trimestre"].isin(trims_sel)]
 
 # Columnas visibles/editar
-cols_base = ["Fecha", "Delegación", "Trimestre"] + [c for c in [col_tipo, col_obs, "Instituciones"] if c]
-cols_mostrar = cols_base + [c for c in cols_HN if c not in cols_base] + [col_pao]
+cols_base = ["Fecha","Delegación","Trimestre"] + [c for c in [col_tipo, col_obs, "Instituciones"] if c]
+cols_mostrar = cols_base + [c for c in cols_HN if c not in cols_base] + [col_pao, COL_SEGUIMIENTO, COL_ACUERDOS]
 for c in cols_mostrar:
     if c not in df_all.columns:
         df_all[c] = "" if c != "Fecha" else pd.NaT
@@ -230,7 +223,7 @@ col_config = {
     "Eliminar": st.column_config.CheckboxColumn("Eliminar"),
     "Fecha": st.column_config.DateColumn("Fecha"),
 }
-for c in yesno_cols:
+for c in yesno_cols.union({COL_SEGUIMIENTO, COL_ACUERDOS}):
     if c in df_ed.columns:
         col_config[c] = st.column_config.SelectboxColumn(c, options=["", "Sí", "No"])
 
@@ -245,20 +238,14 @@ edited = st.data_editor(
 )
 
 c1, c2, c3, c4, c5, c6 = st.columns(6)
-with c1:
-    do_add_iii = st.button("➕ Fila base a III", use_container_width=True)
-with c2:
-    do_add_iv = st.button("➕ Fila base a IV", use_container_width=True)
-with c3:
-    delete_now = st.button("🗑️ Eliminar seleccionados", use_container_width=True)
-with c4:
-    save_now = st.button("💾 Guardar cambios", use_container_width=True)
-with c5:
-    new_col = st.text_input("Nueva columna", placeholder="Nombre de columna…")
-with c6:
-    add_col = st.button("➕ Agregar columna", use_container_width=True)
+with c1: do_add_iii = st.button("➕ Fila base a III", use_container_width=True)
+with c2: do_add_iv  = st.button("➕ Fila base a IV", use_container_width=True)
+with c3: delete_now = st.button("🗑️ Eliminar seleccionados", use_container_width=True)
+with c4: save_now   = st.button("💾 Guardar cambios", use_container_width=True)
+with c5: new_col    = st.text_input("Nueva columna", placeholder="Nombre de columna…")
+with c6: add_col    = st.button("➕ Agregar columna", use_container_width=True)
 
-PROTECTED = {"_row_id", "Delegación", "Trimestre"}
+PROTECTED = {"_row_id","Delegación","Trimestre"}
 if add_col and new_col:
     if new_col in df_all.columns:
         st.warning("Ya existe esa columna.")
@@ -273,10 +260,9 @@ def blank_row(trim_label: str):
     base = {k: "" for k in cols_mostrar}
     base["Fecha"] = pd.NaT
     base["Delegación"] = (deleg_sel if deleg_sel != "(Todas)" else "")
-    base["Trimestre"] = trim_label
-    for c in yesno_cols:
-        if c in base:
-            base[c] = ""
+    base["Trimestre"]  = trim_label
+    for c in yesno_cols.union({COL_SEGUIMIENTO, COL_ACUERDOS}):
+        if c in base: base[c] = ""
     base["_row_id"] = str(uuid.uuid4())
     return base
 
@@ -304,8 +290,7 @@ if save_now:
     for _, row in edited_clean.iterrows():
         rid = str(row["_row_id"]).strip() if pd.notna(row["_row_id"]) else ""
         if not rid:
-            rid = str(uuid.uuid4())
-            row["_row_id"] = rid
+            rid = str(uuid.uuid4()); row["_row_id"] = rid
             new_entry = {c: row.get(c, "") for c in cols_mostrar + ["_row_id"]}
             df_all = pd.concat([df_all, pd.DataFrame([new_entry])], ignore_index=True)
         else:
@@ -313,8 +298,7 @@ if save_now:
             for c in cols_mostrar:
                 if c in edited_clean.columns:
                     df_all.loc[mask, c] = row.get(c, "")
-    # re-normalizar Sí/No
-    for c in yesno_cols:
+    for c in yesno_cols.union({COL_SEGUIMIENTO, COL_ACUERDOS}):
         if c in df_all.columns:
             df_all[c] = df_all[c].map(_norm_yesno)
     st.success("Cambios guardados.")
@@ -325,17 +309,21 @@ st.subheader("4) Formulario rápido para agregar filas")
 with st.form("form_add"):
     a, b, c, d = st.columns(4)
     fecha_new = a.date_input("Fecha", value=date.today())
-    trim_new = b.selectbox("Trimestre", ["I", "II", "III", "IV"], index=2)
+    trim_new  = b.selectbox("Trimestre", ["I","II","III","IV"], index=2)
     deleg_new = c.selectbox("Delegación", sorted([deleg_sel] + delegaciones) if delegaciones else [""])
-    pao_new = d.selectbox("Validación PAO", ["", "Sí", "No"], index=0)
+    pao_new   = d.selectbox("Validación PAO", ["", "Sí", "No"], index=0)
+
+    # NUEVO: Select Sí/No explícito para las dos columnas canónicas
+    seg_new = st.selectbox(COL_SEGUIMIENTO, ["", "Sí", "No"], index=0)
+    acu_new = st.selectbox(COL_ACUERDOS, ["", "Sí", "No"], index=0)
 
     tipo_new = ""
-    if col_tipo:
-        tipos_cat = ["Rendición de cuentas", "Seguimiento", "Líneas de acción", "Informe territorial"]
+    if st.session_state["col_tipo"]:
+        tipos_cat = ["Rendición de cuentas","Seguimiento","Líneas de acción","Informe territorial"]
         tipo_new = st.multiselect("Tipo de actividad (multi)", tipos_cat, default=[])
         tipo_new = "; ".join(tipo_new) if tipo_new else ""
 
-    obs_new = st.text_area(col_obs or "Observaciones", height=100)
+    obs_new  = st.text_area(st.session_state["col_obs"] or "Observaciones", height=100)
     inst_new = st.text_input("Instituciones", "", placeholder="Ingrese instituciones involucradas…")
 
     st.markdown("**Completar columnas H–N**")
@@ -356,45 +344,46 @@ if enviar:
         "Trimestre": trim_new,
         "Instituciones": inst_new,
         "_row_id": str(uuid.uuid4()),
+        COL_SEGUIMIENTO: seg_new,
+        COL_ACUERDOS: acu_new,
     }
     nuevo[col_pao if col_pao in df_all.columns else "Validación PAO"] = pao_new
-    if col_tipo:
-        nuevo[col_tipo] = tipo_new
-    if col_obs:
-        nuevo[col_obs] = obs_new
-    # Asegurar que todas las H–N existan y asignar valores
+    if st.session_state["col_tipo"]: nuevo[st.session_state["col_tipo"]] = tipo_new
+    if st.session_state["col_obs"]:  nuevo[st.session_state["col_obs"]]  = obs_new
     for col in cols_HN:
-        if col not in df_all.columns:
-            df_all[col] = ""
+        if col not in df_all.columns: df_all[col] = ""
         nuevo[col] = valores_hn.get(col, "")
+
     df_all = pd.concat([df_all, pd.DataFrame([nuevo])], ignore_index=True)
+    # normalizar Sí/No por si acaso
+    for c in yesno_cols.union({COL_SEGUIMIENTO, COL_ACUERDOS}):
+        if c in df_all.columns:
+            df_all[c] = df_all[c].map(_norm_yesno)
     st.session_state["df_all"] = df_all
     st.success("Registro agregado.")
 
 # ===================== 5) Vista por tabs =====================
 st.subheader("📑 Vista por 'hojas' (I/II/III/IV)")
-t1, t2, t3, t4 = st.tabs(["I Trimestre", "II Trimestre", "III Trimestre", "IV Trimestre"])
-with t1:
-    st.dataframe(df_all[df_all["Trimestre"] == "I"], use_container_width=True, height=300)
-with t2:
-    st.dataframe(df_all[df_all["Trimestre"] == "II"], use_container_width=True, height=300)
-with t3:
-    st.dataframe(df_all[df_all["Trimestre"] == "III"], use_container_width=True, height=300)
-with t4:
-    st.dataframe(df_all[df_all["Trimestre"] == "IV"], use_container_width=True, height=300)
+t1, t2, t3, t4 = st.tabs(["I Trimestre","II Trimestre","III Trimestre","IV Trimestre"])
+with t1: st.dataframe(df_all[df_all["Trimestre"]=="I"],  use_container_width=True, height=300)
+with t2: st.dataframe(df_all[df_all["Trimestre"]=="II"], use_container_width=True, height=300)
+with t3: st.dataframe(df_all[df_all["Trimestre"]=="III"],use_container_width=True, height=300)
+with t4: st.dataframe(df_all[df_all["Trimestre"]=="IV"], use_container_width=True, height=300)
 
 # ===================== 6) Exportación (siempre 4 hojas) =====================
 st.subheader("6) Descargar Excel (siempre con 4 hojas)")
 export_cols = [c for c in df_all.columns if c != "_row_id"]
-df_export = df_all[export_cols].drop_duplicates()
+df_export  = df_all[export_cols].drop_duplicates()
 
 dfs_by_trim = {
-    "I": df_export[df_export["Trimestre"] == "I"],
-    "II": df_export[df_export["Trimestre"] == "II"],
-    "III": df_export[df_export["Trimestre"] == "III"],
-    "IV": df_export[df_export["Trimestre"] == "IV"],
+    "I":   df_export[df_export["Trimestre"]=="I"],
+    "II":  df_export[df_export["Trimestre"]=="II"],
+    "III": df_export[df_export["Trimestre"]=="III"],
+    "IV":  df_export[df_export["Trimestre"]=="IV"],
 }
 export_xlsx_force_4_sheets(dfs_by_trim, filename="seguimiento_trimestres_generado.xlsx")
 
-st.caption("Detección estricta de hojas; datos persistentes en session_state; 'Seguimiento líneas de acción' y '¿Hubo acuerdos inter‑institucionales…?' como Sí/No en editor y formulario.")
+st.caption("Formulario ahora incluye Sí/No para 'Seguimiento líneas de acción' y '¿Hubo acuerdos inter-institucionales…?'. Datos persistentes entre acciones.")
+
+
 
