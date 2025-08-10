@@ -7,7 +7,7 @@ import unicodedata
 from datetime import date
 
 st.set_page_config(page_title="Seguimiento por Trimestre — Editor y Generador", layout="wide")
-st.title("📘 Seguimiento por Trimestre — Lector + Editor + Formulario")
+st.title("📘 Seguimiento por Trimestre — Lector + Editor + Formulario (Delegación = Columna D)")
 
 # ===================== Helpers =====================
 def clean_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -276,11 +276,29 @@ edited = st.data_editor(
     hide_index=True,
     key="editor",
 )
- c3, c4, c5, c6 = st.columns(6)
-with c3: delete_now = st.button("🗑️ Eliminar seleccionados", use_container_width=True)
-with c4: save_now   = st.button("💾 Guardar cambios", use_container_width=True)
-with c5: new_col    = st.text_input("Nueva columna", placeholder="Nombre de columna…")
-with c6: add_col    = st.button("➕ Agregar columna", use_container_width=True)
+
+# ---------- Botones ----------
+# 1a fila: agregar fila base a I/II/III/IV
+r1c1, r1c2, r1c3, r1c4 = st.columns(4)
+with r1c1:
+    add_I = st.button("➕ Fila base a I", use_container_width=True)
+with r1c2:
+    add_II = st.button("➕ Fila base a II", use_container_width=True)
+with r1c3:
+    add_III = st.button("➕ Fila base a III", use_container_width=True)
+with r1c4:
+    add_IV = st.button("➕ Fila base a IV", use_container_width=True)
+
+# 2a fila: eliminar, guardar, nueva columna, agregar columna
+r2c1, r2c2, r2c3, r2c4 = st.columns(4)
+with r2c1:
+    delete_now = st.button("🗑️ Eliminar seleccionados", use_container_width=True)
+with r2c2:
+    save_now = st.button("💾 Guardar cambios", use_container_width=True)
+with r2c3:
+    new_col = st.text_input("Nueva columna", placeholder="Nombre de columna…")
+with r2c4:
+    add_col = st.button("➕ Agregar columna", use_container_width=True)
 
 PROTECTED = {"_row_id","Delegación","Trimestre"}
 if add_col and new_col:
@@ -303,12 +321,22 @@ def blank_row(trim_label: str):
     base["_row_id"] = str(uuid.uuid4())
     return base
 
-if do_add_iii:
+if add_I:
+    df_all = pd.concat([df_all, pd.DataFrame([blank_row("I")])], ignore_index=True)
+    st.success("Fila base creada en I.")
+    st.session_state["df_all"] = df_all
+
+if add_II:
+    df_all = pd.concat([df_all, pd.DataFrame([blank_row("II")])], ignore_index=True)
+    st.success("Fila base creada en II.")
+    st.session_state["df_all"] = df_all
+
+if add_III:
     df_all = pd.concat([df_all, pd.DataFrame([blank_row("III")])], ignore_index=True)
     st.success("Fila base creada en III.")
     st.session_state["df_all"] = df_all
 
-if do_add_iv:
+if add_IV:
     df_all = pd.concat([df_all, pd.DataFrame([blank_row("IV")])], ignore_index=True)
     st.success("Fila base creada en IV.")
     st.session_state["df_all"] = df_all
@@ -363,7 +391,7 @@ with st.form("form_add"):
     obs_new  = st.text_area(st.session_state["col_obs"] or "Observaciones", height=100)
     inst_new = st.text_input("Instituciones", "", placeholder="Ingrese instituciones involucradas…")
 
-    
+    st.markdown("**Completar columnas H–N**")
     valores_hn = {}
     for col in cols_HN:
         key = f"hn_{abs(hash(col))}"  # clave única por columna
@@ -417,7 +445,8 @@ dfs_by_trim = {
 }
 export_xlsx_force_4_sheets(dfs_by_trim, filename="seguimiento_trimestres_generado.xlsx")
 
-st.caption("Detección flexible de nombres de hoja (I/1er/T1/Q1/etc.), datos persistentes en session_state y formulario con Sí/No para Seguimiento y Acuerdos.")
+st.caption("Agregar fila base disponible para I, II, III y IV. Detección flexible de hojas; Session State activo; campos Sí/No listos en editor y formulario.")
+
 
 
 
