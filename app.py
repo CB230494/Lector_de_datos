@@ -5,7 +5,7 @@ import re
 import uuid
 
 st.set_page_config(page_title="Seguimiento por Trimestre (IT/IIT) — Editar y crear III/IV", layout="wide")
-st.title("📘 Seguimiento por Trimestre — Lector + Editor + Formulario (Delegación = Columna D)")
+st.title("📘 Seguimiento por Trimestre — Lector + Editor + Formulario")
 
 # ------------------------ helpers ------------------------
 def clean_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -297,6 +297,7 @@ st.caption(
     "y crear registros en **III/IV**. Al exportar, si hay filas de esos trimestres, "
     "se crean las hojas correspondientes automáticamente."
 )
+
 
 
 
