@@ -7,7 +7,7 @@ import unicodedata
 from datetime import date
 
 st.set_page_config(page_title="Seguimiento por Trimestre — Editor y Generador", layout="wide")
-st.title("📘 Seguimiento por Trimestre — Lector + Editor + Formulario (Delegación = Columna D)")
+st.title("📘 Seguimiento por Trimestre — Lector + Editor + Formulario")
 
 # ===================== Helpers =====================
 def clean_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -391,7 +391,7 @@ with st.form("form_add"):
     obs_new  = st.text_area(st.session_state["col_obs"] or "Observaciones", height=100)
     inst_new = st.text_input("Instituciones", "", placeholder="Ingrese instituciones involucradas…")
 
-    st.markdown("**Completar columnas H–N**")
+    
     valores_hn = {}
     for col in cols_HN:
         key = f"hn_{abs(hash(col))}"  # clave única por columna
@@ -446,6 +446,7 @@ dfs_by_trim = {
 export_xlsx_force_4_sheets(dfs_by_trim, filename="seguimiento_trimestres_generado.xlsx")
 
 st.caption("Agregar fila base disponible para I, II, III y IV. Detección flexible de hojas; Session State activo; campos Sí/No listos en editor y formulario.")
+
 
 
 
