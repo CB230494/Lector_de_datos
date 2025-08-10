@@ -99,8 +99,8 @@ def pao_col_name(df: pd.DataFrame) -> str:
     return c or "Validación PAO"
 
 # ================= Cargar archivo base =================
-st.subheader("1) Cargar archivo base (auto 1–4 trimestres)")
-uploaded = st.file_uploader("📂 Sube el Excel (IT/IIT o I/II/III/IV)", type=["xlsx", "xlsm"])
+st.subheader("1) Cargar archivo base")
+uploaded = st.file_uploader("📂 Sube el Excel (IT/IIT o I/II/III/IV). Soporta 1–4 hojas.", type=["xlsx", "xlsm"])
 if not uploaded:
     st.info("Sube un archivo para continuar.")
     st.stop()
@@ -133,25 +133,18 @@ for s in sheet_names:
             if lab not in used:
                 mapped[s] = lab; used.add(lab); break
 
-# Construir DF independiente por trimestre + detectar columnas H..N del archivo original
+# Construir un DF independiente por trimestre
 dfs = {"I": None, "II": None, "III": None, "IV": None}
-cols_HN_global = set()  # columnas por posición H..N del archivo original
 for s, lab in mapped.items():
     if lab not in dfs:
         continue
-    raw = pd.read_excel(xls, sheet_name=s)  # crudo p/posiciones
-    # capturar columnas H..N por posición (si existen)
-    hn = list(raw.columns[7:14]) if raw.shape[1] > 7 else []
-    cols_HN_global.update([str(c) for c in hn])
-    # ahora limpiar y estandarizar
-    df = clean_cols(raw)
+    df = pd.read_excel(xls, sheet_name=s)
+    df = clean_cols(df)
     df = standardize_delegacion_from_colD(df)
     df = ensure_columns(df, ["Fecha", "Delegación", "Trimestre", "Instituciones"])
     df["Trimestre"] = lab
     df = ensure_row_id(df)
     dfs[lab] = df if dfs[lab] is None else pd.concat([dfs[lab], df], ignore_index=True)
-
-cols_HN_global = [c for c in cols_HN_global if c not in {"Fecha","Delegación","Trimestre","Instituciones"}]
 
 # DFs vacíos con columnas mínimas si faltan
 BASE_COLS = ["Fecha", "Delegación", "Trimestre", "Instituciones", "Validación PAO"]
@@ -191,9 +184,9 @@ def hoja_editor(label: str):
     )
 
     # Acciones (keys únicas)
-    col1, col2, col3, col4 = st.columns([1,1,2,2])
-    with col1:
-        if st.button(f"➕ Agregar fila en {label}", key=f"btn_addrow_{label}", use_container_width=True):
+    c1, c2, c3, c4 = st.columns([1,1,2,2])
+    with c1:
+        if st.button(f"➕ Agregar fila en {label}", key=f"addrow_{label}", use_container_width=True):
             new = {c: "" for c in edited.columns}
             new["Fecha"] = pd.NaT
             new["Trimestre"] = label
@@ -202,9 +195,9 @@ def hoja_editor(label: str):
             edited.loc[len(edited)] = new
             st.experimental_rerun()
 
-    with col2:
-        new_col = st.text_input("Nueva columna", key=f"txt_newcol_{label}", placeholder="Nombre…")
-        if st.button("➕ Agregar columna", key=f"btn_addcol_{label}", use_container_width=True):
+    with c2:
+        new_col = st.text_input("Nueva columna", key=f"newcol_{label}", placeholder="Nombre…")
+        if st.button("➕ Agregar columna", key=f"addcol_{label}", use_container_width=True):
             if new_col:
                 if new_col in edited.columns:
                     st.warning("Ya existe esa columna.")
@@ -214,7 +207,7 @@ def hoja_editor(label: str):
                     edited[new_col] = ""
                     st.experimental_rerun()
 
-    with col3:
+    with c3:
         if st.button("🗑️ Eliminar seleccionados", key=f"btn_delete_{label}", use_container_width=True):
             to_del = set(edited.loc[edited["_Eliminar"] == True, "_row_id"].astype(str))
             if to_del:
@@ -224,12 +217,51 @@ def hoja_editor(label: str):
             else:
                 st.info("Marca 'Eliminar' en al menos una fila.")
 
-    with col4:
-        if st.button("💾 Guardar cambios de esta hoja", key=f"btn_save_{label}", use_container_width=True):
+    with c4:
+        if st.button("💾 Guardar cambios de esta hoja", key=f"save_{label}", use_container_width=True):
             out = edited.drop(columns=["_Eliminar"], errors="ignore")
             out = normalize_yesno(out, yesno_cols)
             dfs[label] = out.copy()
             st.success("Cambios guardados en memoria.")
+
+    # Formulario rápido para esta hoja (keys únicas)
+    with st.expander("➕ Formulario rápido (agrega 1 fila a esta hoja)"):
+        a, b, c, d = st.columns(4)
+        f_new = a.date_input("Fecha", value=date.today(), key=f"date_{label}")
+        # delegaciones sugeridas por lo ya existente
+        delegs = sorted([d for d in edited.get("Delegación", pd.Series(dtype=str))
+                         .dropna().astype(str).map(str.strip).unique() if d])
+        d_new = b.selectbox("Delegación", options=delegs + [""],
+                            index=len(delegs) if delegs else 0, key=f"sbx_deleg_{label}")
+        pao_new = c.selectbox("Validación PAO", ["", "Sí", "No"], key=f"sbx_pao_{label}")
+        inst_new = d.text_input("Instituciones", key=f"txt_inst_{label}", placeholder="Ingrese instituciones…")
+        # Observaciones (si existe la columna)
+        obs_col = next((cn for cn in edited.columns if re.fullmatch(r"observaciones?\.?", cn, re.I)), None)
+        if obs_col:
+            obs_val = st.text_area(obs_col, key=f"txt_obs_{label}")
+        else:
+            obs_val = st.text_area("Observaciones", key=f"txt_obs_{label}")
+            edited["Observaciones"] = edited.get("Observaciones", "")
+            obs_col = "Observaciones"
+
+        if st.button("Agregar registro", key=f"btn_add_form_{label}"):
+            nuevo = {
+                "_row_id": str(uuid.uuid4()),
+                "Fecha": pd.to_datetime(f_new),
+                "Delegación": d_new,
+                "Trimestre": label,
+                "Instituciones": inst_new,
+                pao_col_name(edited): pao_new,
+                obs_col: obs_val
+            }
+            # Rellenar demás columnas con vacío
+            for ccol in edited.columns:
+                if ccol not in nuevo:
+                    nuevo[ccol] = "" if ccol != "Fecha" else pd.NaT
+            edited.loc[len(edited)] = nuevo
+            dfs[label] = edited.drop(columns=["_Eliminar"], errors="ignore")
+            st.success("Registro agregado.")
+            st.experimental_rerun()
 
 # Tabs por hoja (cada una independiente)
 t1, t2, t3, t4 = st.tabs(["I Trimestre", "II Trimestre", "III Trimestre", "IV Trimestre"])
@@ -238,102 +270,13 @@ with t2: hoja_editor("II")
 with t3: hoja_editor("III")
 with t4: hoja_editor("IV")
 
-# ================= Formulario ORIGINAL (global) =================
-st.subheader("3) Formulario para agregar filas (original)")
-# Sugerir delegaciones a partir de todas las hojas
-all_delegs = sorted(
-    set(
-        d for lab in dfs
-        for d in dfs[lab].get("Delegación", pd.Series(dtype=str)).dropna().astype(str).map(str.strip).tolist()
-        if d
-    )
-)
-
-# ¿Existe 'Tipo de actividad' / 'Observaciones' en alguna hoja?
-def find_col_any(pat: str) -> str | None:
-    for lab in dfs:
-        for c in dfs[lab].columns:
-            if re.fullmatch(pat, c, flags=re.I):
-                return c
-    return None
-
-col_tipo_any = find_col_any(r"tipo\s*de\s*actividad\.?")
-col_obs_any  = find_col_any(r"observaciones?\.?")
-
-# Detección global de PAO
-def any_df() -> pd.DataFrame:
-    for lab in dfs:
-        if not dfs[lab].empty:
-            return dfs[lab]
-    # si todos están vacíos
-    return pd.concat(dfs.values()).head(0)
-
-pao_global_col = pao_col_name(any_df())
-
-with st.form("form_add_global"):
-    a, b, c, d = st.columns(4)
-    fecha_new = a.date_input("Fecha", value=date.today())
-    trim_new  = b.selectbox("Trimestre", ["I","II","III","IV"], index=2)
-    deleg_new = c.selectbox("Delegación", all_delegs + [""] if all_delegs else [""])
-    pao_new   = d.selectbox("Validación PAO", ["", "Sí", "No"], index=0)
-
-    tipo_new = ""
-    if col_tipo_any:
-        tipos_cat = ["Rendición de cuentas","Seguimiento","Líneas de acción","Informe territorial"]
-        tipo_new = st.multiselect("Tipo de actividad (multi)", tipos_cat, default=[])
-        tipo_new = "; ".join(tipo_new) if tipo_new else ""
-
-    obs_new  = st.text_area(col_obs_any or "Observaciones", height=100)
-    inst_new = st.text_input("Instituciones", "", placeholder="Ingrese instituciones…")
-
-    st.markdown("**Completar columnas H–N**")
-    # Para las columnas H–N decidimos si son Sí/No o texto según su presencia en alguna hoja
-    yesno_lookup = {}
-    for col in cols_HN_global:
-        # si alguna hoja la tiene como binaria, la tratamos como Sí/No
-        is_yesno = False
-        for lab in dfs:
-            if col in dfs[lab].columns and _is_yesno_col(dfs[lab][col]):
-                is_yesno = True
-                break
-        yesno_lookup[col] = is_yesno
-
-    valores_hn = {}
-    for col in cols_HN_global:
-        if yesno_lookup[col]:
-            valores_hn[col] = st.selectbox(col, ["", "Sí", "No"], index=0, key=f"hn_{col}")
-        else:
-            valores_hn[col] = st.text_input(col, value="", key=f"hn_{col}")
-
-    enviar = st.form_submit_button("➕ Agregar registro")
-
-if enviar:
-    # crear si no existen columnas en esa hoja
-    for col in [pao_global_col, col_tipo_any, col_obs_any, "Instituciones"] + cols_HN_global:
-        if col and col not in dfs[trim_new].columns:
-            dfs[trim_new][col] = ""
-
-    nuevo = {
-        "_row_id": str(uuid.uuid4()),
-        "Fecha": pd.to_datetime(fecha_new),
-        "Delegación": deleg_new,
-        "Trimestre": trim_new,
-        "Instituciones": inst_new,
-        pao_global_col: pao_new
-    }
-    if col_tipo_any: nuevo[col_tipo_any] = tipo_new
-    if col_obs_any:  nuevo[col_obs_any]  = obs_new
-    for col in cols_HN_global:
-        nuevo[col] = valores_hn.get(col, "")
-
-    dfs[trim_new] = pd.concat([dfs[trim_new], pd.DataFrame([nuevo])], ignore_index=True)
-    st.success(f"Registro agregado en {trim_new}.")
-
 # ================= Exportar =================
-st.subheader("4) Exportar Excel (siempre 4 hojas)")
+st.subheader("3) Exportar Excel (siempre 4 hojas)")
 export_xlsx_force_4_sheets(dfs, filename="seguimiento_trimestres_independiente.xlsx")
 
-st.caption("Formulario original preservado. Cada pestaña maneja su propia hoja, y el formulario agrega en la hoja seleccionada en 'Trimestre'.")
+st.caption("Cada pestaña maneja su propia hoja. Agregar/editar/eliminar en una no afecta a las demás. Delegación siempre proviene de la columna D del archivo cargado.")
+
+
 
 
 
