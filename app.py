@@ -142,7 +142,7 @@ with st.form("form_add"):
 
     obs_new = st.text_area("Observaciones", height=100, placeholder="Agrega observaciones…")
 
-    st.markdown("**Completar columnas H–N** (se muestran con el nombre real de tu archivo)")
+    st.markdown("Completar columnas")
     valores_hn = {}
     for col in cols_HN:
         valores_hn[col] = st.text_input(col, value="")
@@ -210,6 +210,7 @@ if not sheets:
 export_xlsx(sheets, filename="seguimiento_trimestres_generado.xlsx")
 
 st.caption("Nota: El filtro y la columna 'Delegación' se construyen SIEMPRE desde la **columna D** por posición, para evitar columnas duplicadas.")
+
 
 
 
