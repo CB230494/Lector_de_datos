@@ -76,7 +76,7 @@ def export_xlsx_force_4_sheets(dfs_by_trim: dict, filename: str):
                        file_name=filename,
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-# Columnas canónicas de Sí/No que quieres en el formulario
+# Columnas canónicas de Sí/No para usar en editor y formulario
 COL_SEGUIMIENTO = "Seguimiento líneas de acción"
 COL_ACUERDOS    = "¿Hubo acuerdos inter-institucionales concretos en esta sesión?"
 
@@ -90,7 +90,6 @@ if not archivo_base:
 # ---------- Persistencia en sesión ----------
 file_key = f"{archivo_base.name}-{getattr(archivo_base, 'size', None)}"
 if "file_key" not in st.session_state or st.session_state["file_key"] != file_key:
-    # (Re)cargar desde archivo porque es un archivo nuevo o cambió
     xls = pd.ExcelFile(archivo_base)
     sheet_names = xls.sheet_names
 
@@ -107,13 +106,11 @@ if "file_key" not in st.session_state or st.session_state["file_key"] != file_ke
         return ""
 
     # Solo mapeamos hojas que COINCIDEN; NO se rellenan por orden
-    mapped = {}
-    used = set()
+    mapped, used = {}, set()
     for sh in sheet_names:
         lab = guess_trim(sh)
         if lab and lab not in used:
-            mapped[sh] = lab
-            used.add(lab)
+            mapped[sh] = lab; used.add(lab)
 
     frames = []
     for sh, tri in mapped.items():
@@ -124,19 +121,19 @@ if "file_key" not in st.session_state or st.session_state["file_key"] != file_ke
         frames.append(df_sh)
 
     if not frames:
-        st.error("No pude detectar hojas de trimestres (IT, IIT, I, II, III o IV). Renombra las hojas o verifica el archivo.")
+        st.error("No pude detectar hojas IT/IIT/I/II/III/IV. Renombra las hojas o verifica el archivo.")
         st.stop()
 
     df_all = pd.concat(frames, ignore_index=True)
     df_all = ensure_row_id(df_all)
 
-    # Detectar columnas H..N a partir de la hoja más grande
+    # Detectar columnas H..N
     cols_HN = []
     for df_sample in frames:
-        if len(take_cols_H_to_N(df_sample)) > len(cols_HN):
-            cols_HN = take_cols_H_to_N(df_sample)
+        cand = take_cols_H_to_N(df_sample)
+        if len(cand) > len(cols_HN): cols_HN = cand
 
-    # Detectar Tipo y Observaciones (si existen en alguna hoja)
+    # Detectar Tipo y Observaciones
     def find_in_frames(frames, pat):
         for d in frames:
             c = find_col_by_exact(d, pat)
@@ -149,14 +146,10 @@ if "file_key" not in st.session_state or st.session_state["file_key"] != file_ke
     if "Fecha" not in df_all.columns: df_all["Fecha"] = pd.NaT
     if "Instituciones" not in df_all.columns: df_all["Instituciones"] = ""
 
-    # ======= Forzar columnas Sí/No (PAO + 2 canónicas) =======
+    # ===== Forzar columnas Sí/No =====
     col_pao = next((c for c in df_all.columns if re.search(r"validaci[oó]n\s*pao", c, re.I)), "Validación PAO")
     if col_pao not in df_all.columns: df_all[col_pao] = ""
-
-    # set de columnas Sí/No
     yesno_cols = {col_pao, COL_SEGUIMIENTO, COL_ACUERDOS}
-
-    # además, detectar otras por contenido o nombre
     YESNO_NAME_HINTS = [
         r"validaci[oó]n\s*pao",
         r"^seguimiento\s+líneas\s+de\s+acci[oó]n$",
@@ -169,22 +162,22 @@ if "file_key" not in st.session_state or st.session_state["file_key"] != file_ke
            (df_all[c].dtype == "O" and _is_yesno_column(df_all[c])):
             yesno_cols.add(c)
 
-    # Crear si no existen + normalizar
     for c in yesno_cols:
-        if c not in df_all.columns:
-            df_all[c] = ""
+        if c not in df_all.columns: df_all[c] = ""
         df_all[c] = df_all[c].map(_norm_yesno)
 
     # Guardar en sesión
-    st.session_state["file_key"]   = file_key
-    st.session_state["df_all"]     = df_all
-    st.session_state["cols_HN"]    = cols_HN
-    st.session_state["col_tipo"]   = col_tipo
-    st.session_state["col_obs"]    = col_obs
-    st.session_state["col_pao"]    = col_pao
-    st.session_state["yesno_cols"] = list(yesno_cols)
+    st.session_state.update({
+        "file_key": file_key,
+        "df_all": df_all,
+        "cols_HN": cols_HN,
+        "col_tipo": col_tipo,
+        "col_obs": col_obs,
+        "col_pao": col_pao,
+        "yesno_cols": list(yesno_cols),
+    })
 
-# Usar SIEMPRE lo que está en sesión (persistente entre reruns)
+# Usar lo de sesión
 df_all     = st.session_state["df_all"].copy()
 cols_HN    = st.session_state["cols_HN"]
 col_tipo   = st.session_state["col_tipo"]
@@ -198,6 +191,7 @@ delegaciones = sorted([d for d in df_all["Delegación"].dropna().astype(str).map
 deleg_sel = st.selectbox("🏢 Delegación (columna D)", options=["(Todas)"] + delegaciones, index=0)
 trims_sel = st.multiselect("🗓️ Trimestres", options=["I","II","III","IV"], default=["I","II","III","IV"])
 
+# Filtro de filas (aún sin tocar columnas)
 df_filtrado = df_all.copy()
 if deleg_sel != "(Todas)":
     df_filtrado = df_filtrado[df_filtrado["Delegación"] == deleg_sel]
@@ -207,9 +201,15 @@ if trims_sel:
 # Columnas visibles/editar
 cols_base = ["Fecha","Delegación","Trimestre"] + [c for c in [col_tipo, col_obs, "Instituciones"] if c]
 cols_mostrar = cols_base + [c for c in cols_HN if c not in cols_base] + [col_pao, COL_SEGUIMIENTO, COL_ACUERDOS]
+
+# Asegurar que EXISTAN en df_all
 for c in cols_mostrar:
     if c not in df_all.columns:
         df_all[c] = "" if c != "Fecha" else pd.NaT
+
+# ⚠️ REALINEAR df_filtrado después de crear columnas nuevas
+df_filtrado = df_all.loc[df_filtrado.index]  # conserva las mismas filas, pero con todas las columnas
+
 cols_editor = [c for c in cols_mostrar if c in df_all.columns] + ["_row_id"]
 
 # ===================== 3) Editor =====================
@@ -310,10 +310,10 @@ with st.form("form_add"):
     a, b, c, d = st.columns(4)
     fecha_new = a.date_input("Fecha", value=date.today())
     trim_new  = b.selectbox("Trimestre", ["I","II","III","IV"], index=2)
-    deleg_new = c.selectbox("Delegación", sorted([deleg_sel] + delegaciones) if delegaciones else [""])
+    deleg_new = c.selectbox("Delegación", sorted([deleg_sel] + delegaciones) if delegaciones else [""], index=0)
     pao_new   = d.selectbox("Validación PAO", ["", "Sí", "No"], index=0)
 
-    # NUEVO: Select Sí/No explícito para las dos columnas canónicas
+    # Sí/No explícitos para las 2 columnas canónicas
     seg_new = st.selectbox(COL_SEGUIMIENTO, ["", "Sí", "No"], index=0)
     acu_new = st.selectbox(COL_ACUERDOS, ["", "Sí", "No"], index=0)
 
@@ -329,7 +329,7 @@ with st.form("form_add"):
     st.markdown("**Completar columnas H–N**")
     valores_hn = {}
     for col in cols_HN:
-        key = f"hn_{abs(hash(col))}"  # clave única por columna
+        key = f"hn_{abs(hash(col))}"
         if col in yesno_cols:
             valores_hn[col] = st.selectbox(col, ["", "Sí", "No"], index=0, key=key)
         else:
@@ -347,18 +347,15 @@ if enviar:
         COL_SEGUIMIENTO: seg_new,
         COL_ACUERDOS: acu_new,
     }
-    nuevo[col_pao if col_pao in df_all.columns else "Validación PAO"] = pao_new
+    nuevo[st.session_state["col_pao"] if st.session_state["col_pao"] in df_all.columns else "Validación PAO"] = pao_new
     if st.session_state["col_tipo"]: nuevo[st.session_state["col_tipo"]] = tipo_new
     if st.session_state["col_obs"]:  nuevo[st.session_state["col_obs"]]  = obs_new
     for col in cols_HN:
         if col not in df_all.columns: df_all[col] = ""
         nuevo[col] = valores_hn.get(col, "")
-
     df_all = pd.concat([df_all, pd.DataFrame([nuevo])], ignore_index=True)
-    # normalizar Sí/No por si acaso
     for c in yesno_cols.union({COL_SEGUIMIENTO, COL_ACUERDOS}):
-        if c in df_all.columns:
-            df_all[c] = df_all[c].map(_norm_yesno)
+        if c in df_all.columns: df_all[c] = df_all[c].map(_norm_yesno)
     st.session_state["df_all"] = df_all
     st.success("Registro agregado.")
 
@@ -383,7 +380,5 @@ dfs_by_trim = {
 }
 export_xlsx_force_4_sheets(dfs_by_trim, filename="seguimiento_trimestres_generado.xlsx")
 
-st.caption("Formulario ahora incluye Sí/No para 'Seguimiento líneas de acción' y '¿Hubo acuerdos inter-institucionales…?'. Datos persistentes entre acciones.")
-
-
+st.caption("Fix: realineamos el DataFrame filtrado después de crear columnas → adiós KeyError. Formulario incluye Sí/No para Seguimiento y Acuerdos.")
 
