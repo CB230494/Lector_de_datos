@@ -8,106 +8,96 @@ from datetime import date
 
 st.markdown("## 📋 Lista de asistencia – Seguimiento de líneas de acción")
 
-# --- Número de filas ---
-filas = st.number_input("Cantidad de filas a generar", min_value=5, max_value=500, value=25, step=5)
+# Estado
+if "asistencia_rows" not in st.session_state:
+    st.session_state.asistencia_rows = []
 
-# --- Definición de columnas (orden igual a la plantilla) ---
-COLS = [
-    "Nº", "Nombre", "Cédula de Identidad", "Institución", "Cargo", "Teléfono",
-    "Genero_F", "Genero_M", "Genero_LGBTIQ+",
-    "Sexo_H", "Sexo_M", "Sexo_I",
-    "Edad_18_35", "Edad_36_64", "Edad_65_mas"
-]
+# ------- Formulario simple -------
+with st.form("form_asistencia", clear_on_submit=True):
+    c1, c2, c3 = st.columns([1.2, 1, 1])
+    nombre      = c1.text_input("Nombre")
+    cedula      = c2.text_input("Cédula de Identidad")
+    institucion = c3.text_input("Institución")
 
-def make_empty_df(n):
-    data = []
-    for i in range(1, n+1):
-        data.append({
-            "Nº": i, "Nombre": "", "Cédula de Identidad": "", "Institución": "", "Cargo": "", "Teléfono": "",
-            "Genero_F": False, "Genero_M": False, "Genero_LGBTIQ+": False,
-            "Sexo_H": False, "Sexo_M": False, "Sexo_I": False,
-            "Edad_18_35": False, "Edad_36_64": False, "Edad_65_mas": False
-        })
-    return pd.DataFrame(data, columns=COLS)
+    c4, c5 = st.columns([1, 1])
+    cargo    = c4.text_input("Cargo")
+    telefono = c5.text_input("Teléfono")
 
-df_init = make_empty_df(int(filas))
+    st.markdown("#### ")
+    gcol, scol, ecol = st.columns([1.1, 1.5, 1.5])
+    genero = gcol.radio("Género", ["F", "M", "LGBTIQ+"], horizontal=True)
+    sexo   = scol.radio("Sexo (Hombre, Mujer o Intersex)", ["H", "M", "I"], horizontal=True)
+    edad   = ecol.radio("Rango de Edad", ["18 a 35 años", "36 a 64 años", "65 años o más"], horizontal=True)
 
-# --- Cabecera "visual" para que se vea como la imagen ---
-st.markdown(
-    """
-    <div style="display:grid;grid-template-columns:50px 1.4fr 1fr 1.2fr .9fr .9fr .5fr .5fr .8fr .5fr .5fr .5fr .9fr .9fr .9fr;gap:2px;font-weight:600;text-align:center;">
-      <div></div><div></div><div></div><div></div><div></div><div></div>
-      <div style="grid-column:7/10;background:#B7C6F9;border-radius:4px;padding:6px 0;">Género</div>
-      <div style="grid-column:10/13;background:#B7C6F9;border-radius:4px;padding:6px 0;">Sexo (Hombre, Mujer o Intersex)</div>
-      <div style="grid-column:13/16;background:#B7C6F9;border-radius:4px;padding:6px 0;">Rango de Edad</div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+    submitted = st.form_submit_button("➕ Agregar a la lista", use_container_width=True)
+    if submitted:
+        # Validación mínima
+        if not nombre.strip():
+            st.warning("Ingresa al menos el nombre.")
+        else:
+            st.session_state.asistencia_rows.append({
+                "Nº": len(st.session_state.asistencia_rows) + 1,
+                "Nombre": nombre.strip(),
+                "Cédula de Identidad": cedula.strip(),
+                "Institución": institucion.strip(),
+                "Cargo": cargo.strip(),
+                "Teléfono": telefono.strip(),
+                "Género": genero,
+                "Sexo": sexo,
+                "Rango de Edad": edad
+            })
+            st.success("Registro agregado.")
 
-# --- Editor de datos (formulario) ---
-edited_df = st.data_editor(
-    df_init,
-    hide_index=True,
-    use_container_width=True,
-    column_config={
-        "Nº": st.column_config.NumberColumn("Nº", disabled=True, width="small"),
-        "Nombre": st.column_config.TextColumn("Nombre", width="large"),
-        "Cédula de Identidad": st.column_config.TextColumn("Cédula de Identidad", width="medium"),
-        "Institución": st.column_config.TextColumn("Institución", width="medium"),
-        "Cargo": st.column_config.TextColumn("Cargo", width="medium"),
-        "Teléfono": st.column_config.TextColumn("Teléfono", width="medium"),
+# ------- Cuadro con lo ingresado -------
+if st.session_state.asistencia_rows:
+    df_vis = pd.DataFrame(st.session_state.asistencia_rows, columns=[
+        "Nº","Nombre","Cédula de Identidad","Institución","Cargo","Teléfono",
+        "Género","Sexo","Rango de Edad"
+    ])
+    st.markdown("### Registros cargados")
+    st.dataframe(df_vis, hide_index=True, use_container_width=True)
 
-        # Género
-        "Genero_F": st.column_config.CheckboxColumn("F", help="Género: Femenino", width="small"),
-        "Genero_M": st.column_config.CheckboxColumn("M", help="Género: Masculino", width="small"),
-        "Genero_LGBTIQ+": st.column_config.CheckboxColumn("LGBTIQ+", help="Género: LGBTIQ+", width="small"),
+    cbtn1, cbtn2, _ = st.columns([1,1,6])
+    if cbtn1.button("🗑️ Eliminar última fila"):
+        st.session_state.asistencia_rows.pop()
+        # Reenumerar
+        for i, r in enumerate(st.session_state.asistencia_rows, start=1):
+            r["Nº"] = i
+    if cbtn2.button("🧹 Vaciar lista"):
+        st.session_state.asistencia_rows.clear()
 
-        # Sexo
-        "Sexo_H": st.column_config.CheckboxColumn("H", help="Sexo: Hombre", width="small"),
-        "Sexo_M": st.column_config.CheckboxColumn("M", help="Sexo: Mujer", width="small"),
-        "Sexo_I": st.column_config.CheckboxColumn("I", help="Sexo: Intersex", width="small"),
-
-        # Rango de edad
-        "Edad_18_35": st.column_config.CheckboxColumn("18 a 35 años", width="medium"),
-        "Edad_36_64": st.column_config.CheckboxColumn("36 a 64 años", width="medium"),
-        "Edad_65_mas": st.column_config.CheckboxColumn("65 años o más", width="medium"),
-    }
-)
-
-# --- Generar Excel con encabezados combinados y colores, usando openpyxl ---
-def build_excel_asistencia(df: pd.DataFrame) -> bytes:
+# ------- Excel con encabezados combinados y colores (igual a la plantilla) -------
+def build_excel_asistencia(rows: list) -> bytes:
     try:
         from openpyxl import Workbook
         from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
     except Exception:
-        st.error("Falta el paquete 'openpyxl'. Agrega `openpyxl` a requirements.txt y vuelve a ejecutar.")
+        st.error("Falta el paquete 'openpyxl'. Agrega `openpyxl` a requirements.txt.")
         return b""
 
     wb = Workbook()
     ws = wb.active
     ws.title = "Asistencia"
 
-    # Anchos
+    # Anchos de columnas A:O
     widths = [5, 28, 18, 24, 20, 16, 12, 12, 12, 12, 12, 12, 14, 14, 14]
     for idx, w in enumerate(widths, start=1):
         ws.column_dimensions[chr(64+idx)].width = w
 
     # Estilos
-    title_fill  = PatternFill("solid", fgColor="1F3B73")
-    title_font  = Font(bold=True, size=14, color="FFFFFF")
-    head_fill   = PatternFill("solid", fgColor="DDE7FF")
-    group_fill  = PatternFill("solid", fgColor="B7C6F9")
-    head_font   = Font(bold=True)
-    center      = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    left        = Alignment(horizontal="left", vertical="center", wrap_text=True)
-    thin        = Side(style="thin", color="000000")
-    border_all  = Border(left=thin, right=thin, top=thin, bottom=thin)
+    title_fill = PatternFill("solid", fgColor="1F3B73")
+    title_font = Font(bold=True, size=14, color="FFFFFF")
+    head_fill  = PatternFill("solid", fgColor="DDE7FF")
+    group_fill = PatternFill("solid", fgColor="B7C6F9")
+    head_font  = Font(bold=True)
+    center     = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left       = Alignment(horizontal="left",   vertical="center", wrap_text=True)
+    thin       = Side(style="thin", color="000000")
+    border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
 
     # Título
     ws.merge_cells("A1:O1")
-    c = ws["A1"]
-    c.value = "Lista de asistencia – Seguimiento de líneas de acción"
+    c = ws["A1"]; c.value = "Lista de asistencia – Seguimiento de líneas de acción"
     c.fill, c.font, c.alignment = title_fill, title_font, center
     ws.row_dimensions[1].height = 28
 
@@ -131,11 +121,8 @@ def build_excel_asistencia(df: pd.DataFrame) -> bytes:
         "M3":"18 a 35 años", "N3":"36 a 64 años", "O3":"65 años o más"
     }
     for addr, text in subs.items():
-        cell = ws[addr]
-        cell.value = text
-        cell.font = head_font
-        cell.alignment = center
-        cell.fill = head_fill
+        cell = ws[addr]; cell.value = text
+        cell.font = head_font; cell.alignment = center; cell.fill = head_fill
 
     ws.row_dimensions[2].height = 24
     ws.row_dimensions[3].height = 24
@@ -145,34 +132,47 @@ def build_excel_asistencia(df: pd.DataFrame) -> bytes:
 
     # Cuerpo
     start_row = 4
-    for i, row in df.iterrows():
-        r = start_row + i
-        vals = [
-            row["Nº"], row["Nombre"], row["Cédula de Identidad"], row["Institución"], row["Cargo"], row["Teléfono"],
-            "X" if row["Genero_F"] else "", "X" if row["Genero_M"] else "", "X" if row["Genero_LGBTIQ+"] else "",
-            "X" if row["Sexo_H"] else "", "X" if row["Sexo_M"] else "", "X" if row["Sexo_I"] else "",
-            "X" if row["Edad_18_35"] else "", "X" if row["Edad_36_64"] else "", "X" if row["Edad_65_mas"] else ""
+    for i, r in enumerate(rows, start=0):
+        rr = start_row + i
+        # Campos texto
+        values = [
+            r["Nº"], r["Nombre"], r["Cédula de Identidad"], r["Institución"], r["Cargo"], r["Teléfono"]
         ]
-        for cidx, v in enumerate(vals, start=1):
-            cell = ws.cell(row=r, column=cidx, value=v)
+        for cidx, v in enumerate(values, start=1):
+            cell = ws.cell(row=rr, column=cidx, value=v)
             cell.border = border_all
-            cell.alignment = center if cidx in [1,7,8,9,10,11,12,13,14,15] else left
-        ws.row_dimensions[r].height = 20
+            cell.alignment = center if cidx == 1 else left
+
+        # Marcas X según selección
+        g = r["Género"]; s = r["Sexo"]; e = r["Rango de Edad"]
+        marks = [
+            "X" if g=="F" else "", "X" if g=="M" else "", "X" if g=="LGBTIQ+" else "",
+            "X" if s=="H" else "", "X" if s=="M" else "", "X" if s=="I" else "",
+            "X" if e.startswith("18") else "", "X" if e.startswith("36") else "", "X" if e.startswith("65") else ""
+        ]
+        for off, v in enumerate(marks, start=7):  # columnas G..O
+            cell = ws.cell(row=rr, column=off, value=v)
+            cell.border = border_all
+            cell.alignment = center
+
+        ws.row_dimensions[rr].height = 20
 
     ws.freeze_panes = "B4"
-    bio = BytesIO()
-    wb.save(bio)
+    bio = BytesIO(); wb.save(bio)
     return bio.getvalue()
 
-# --- Botón de descarga ---
-excel_bytes = build_excel_asistencia(edited_df[COLS])
-st.download_button(
-    "⬇️ Descargar Excel",
-    data=excel_bytes,
-    file_name=f"Lista_Asistencia_LineasAccion_{date.today():%Y%m%d}.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    help="Descarga el Excel con el mismo orden y encabezados combinados."
-)
+# Botón de descarga
+if st.session_state.asistencia_rows:
+    excel_bytes = build_excel_asistencia(st.session_state.asistencia_rows)
+    st.download_button(
+        "⬇️ Descargar Excel",
+        data=excel_bytes,
+        file_name=f"Lista_Asistencia_LineasAccion_{date.today():%Y%m%d}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
+    )
+else:
+    st.info("Agrega registros al formulario y aquí podrás descargar el Excel.")
 
 
 
