@@ -1,5 +1,5 @@
 # =========================
-# 📋 Lista de asistencia – Seguimiento de líneas de acción (multiusuario con SQLite)
+# 📋 Lista de asistencia – Seguimiento de líneas de acción (SQLite + eliminación)
 # =========================
 import streamlit as st
 import pandas as pd
@@ -41,7 +41,7 @@ def insert_row(row):
 def fetch_all_df():
     with get_conn() as conn:
         df = pd.read_sql_query("""
-            SELECT id, created_at,
+            SELECT id,
                    nombre  AS 'Nombre',
                    cedula  AS 'Cédula de Identidad',
                    institucion AS 'Institución',
@@ -56,6 +56,17 @@ def fetch_all_df():
     if not df.empty:
         df.insert(0, "Nº", range(1, len(df)+1))
     return df
+
+def delete_rows_by_ids(ids):
+    if not ids:
+        return
+    with get_conn() as conn:
+        q = ",".join("?" for _ in ids)
+        conn.execute(f"DELETE FROM asistencia WHERE id IN ({q})", ids)
+
+def delete_all_rows():
+    with get_conn() as conn:
+        conn.execute("DELETE FROM asistencia;")
 
 init_db()
 
@@ -94,13 +105,50 @@ with st.form("form_asistencia", clear_on_submit=True):
             insert_row(fila)
             st.success("Registro guardado.")
 
-# ---------- Vista de todo lo recibido ----------
+# ---------- Vista de todo lo recibido (SIN fecha/hora) ----------
 st.markdown("### 📥 Registros recibidos")
 df_all = fetch_all_df()
-st.dataframe(df_all if not df_all.empty else pd.DataFrame(
-    columns=["Nº","Nombre","Cédula de Identidad","Institución","Cargo","Teléfono","Género","Sexo","Rango de Edad"]),
-    hide_index=True, use_container_width=True
-)
+
+if not df_all.empty:
+    # Tabla con checkbox para seleccionar filas a eliminar
+    df_view = df_all.copy()
+    df_view["Seleccionar"] = False  # columna para marcar
+    edited = st.data_editor(
+        df_view[["Nº","Nombre","Cédula de Identidad","Institución","Cargo","Teléfono",
+                 "Género","Sexo","Rango de Edad","Seleccionar"]],
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "Seleccionar": st.column_config.CheckboxColumn("Seleccionar", help="Marca para eliminar")
+        },
+        key="tabla_compartida"
+    )
+
+    # Botones de eliminación
+    cdel, cvac, cconf = st.columns([1.2, 1.2, 2])
+    btn_delete = cdel.button("🗑️ Eliminar seleccionados", use_container_width=True)
+    confirm_all = cconf.checkbox("Confirmar vaciado total", value=False)
+    btn_clear = cvac.button("🧹 Vaciar todos", use_container_width=True)
+
+    if btn_delete:
+        idx_sel = edited.index[edited["Seleccionar"] == True].tolist()
+        ids = df_all.iloc[idx_sel]["id"].tolist()
+        if ids:
+            delete_rows_by_ids(ids)
+            st.success(f"Eliminadas {len(ids)} fila(s).")
+            st.rerun()
+        else:
+            st.info("No hay filas seleccionadas para eliminar.")
+
+    if btn_clear:
+        if confirm_all:
+            delete_all_rows()
+            st.success("Se vaciaron todos los registros.")
+            st.rerun()
+        else:
+            st.warning("Marca la casilla 'Confirmar vaciado total' para continuar.")
+else:
+    st.info("Aún no hay registros guardados.")
 
 # ---------- Generar Excel con el mismo formato de tu plantilla ----------
 def build_excel_asistencia(rows_df: pd.DataFrame) -> bytes:
@@ -124,25 +172,24 @@ def build_excel_asistencia(rows_df: pd.DataFrame) -> bytes:
     left   = Alignment(horizontal="left",   vertical="center", wrap_text=True)
     thin = Side(style="thin", color="000000"); border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-    # Título
     ws.merge_cells("A1:O1")
     c = ws["A1"]; c.value = "Lista de asistencia – Seguimiento de líneas de acción"
     c.fill, c.font, c.alignment = title_fill, title_font, center
 
-    # Encabezados (A2:O3)
     for rng, text in [("A2:A3","Nº"),("B2:B3","Nombre"),("C2:C3","Cédula de Identidad"),
                       ("D2:D3","Institución"),("E2:E3","Cargo"),("F2:F3","Teléfono"),
                       ("G2:I2","Género"),("J2:L2","Sexo (Hombre, Mujer o Intersex)"),("M2:O2","Rango de Edad")]:
         ws.merge_cells(rng); cell = ws[rng.split(":")[0]]
         cell.value = text; cell.alignment = center; cell.font = head_font
         cell.fill = group_fill if rng in ["G2:I2","J2:L2","M2:O2"] else head_fill
+
     for addr, txt in {"G3":"F","H3":"M","I3":"LGBTIQ+","J3":"H","K3":"M","L3":"I",
                       "M3":"18 a 35 años","N3":"36 a 64 años","O3":"65 años o más"}.items():
         cell = ws[addr]; cell.value = txt; cell.font = head_font; cell.alignment = center; cell.fill = head_fill
+
     for r in range(2,4):
         for cidx in range(1,16): ws.cell(row=r, column=cidx).border = border_all
 
-    # Cuerpo
     start = 4
     for i, row in rows_df.iterrows():
         rr = start + i
@@ -150,7 +197,6 @@ def build_excel_asistencia(rows_df: pd.DataFrame) -> bytes:
         for cidx, v in enumerate(vals, start=1):
             cell = ws.cell(row=rr, column=cidx, value=v); cell.border = border_all
             cell.alignment = center if cidx == 1 else left
-        # Marcar X según columnas de texto
         g, s, e = row["Género"], row["Sexo"], row["Rango de Edad"]
         marks = ["X" if g=="F" else "", "X" if g=="M" else "", "X" if g=="LGBTIQ+" else "",
                  "X" if s=="H" else "", "X" if s=="M" else "", "X" if s=="I" else "",
@@ -161,7 +207,7 @@ def build_excel_asistencia(rows_df: pd.DataFrame) -> bytes:
     ws.freeze_panes = "B4"
     bio = BytesIO(); wb.save(bio); return bio.getvalue()
 
-# Botón de descarga (todos los registros)
+# Botón de descarga (todos los registros actuales)
 if not df_all.empty:
     xls_bytes = build_excel_asistencia(df_all[[
         "Nº","Nombre","Cédula de Identidad","Institución","Cargo","Teléfono","Género","Sexo","Rango de Edad"
@@ -173,9 +219,6 @@ if not df_all.empty:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True
     )
-else:
-    st.info("Aún no hay registros guardados.")
-
 
 
 
