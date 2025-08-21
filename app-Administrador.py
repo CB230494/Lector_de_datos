@@ -1,5 +1,5 @@
 # =========================
-# 🛠️ Panel del Administrador – Asistencia (editar, eliminar, Excel oficial)
+# 🛠️ Panel del Administrador – Asistencia (SQLite)
 # =========================
 import streamlit as st
 import pandas as pd
@@ -11,10 +11,11 @@ from pathlib import Path
 st.set_page_config(page_title="Asistencia - Administrador", layout="wide")
 st.markdown("# 🛠️ Panel del Administrador – Asistencia")
 
-# ---------- DB (SQLite persistente) ----------
-DB_PATH = "asistencia.db"
+# ---------- DB (SQLite) ----------
+DB_PATH = st.secrets.get("db", {}).get("db_path", "asistencia.db")
 
 def get_conn():
+    Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     return sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
 
 def init_db():
@@ -48,8 +49,10 @@ def fetch_all_df(include_id=True):
         """, conn)
     if not df.empty:
         df.insert(0, "Nº", range(1, len(df)+1))
-    if not include_id and not df.empty:
-        return df.drop(columns=["id"])
+        if not include_id:
+            df = df.drop(columns=["id"])
+    else:
+        df = pd.DataFrame(columns=(["Nº"] + (["id"] if include_id else []) + ["Nombre","Cédula de Identidad","Institución","Cargo","Teléfono","Género","Sexo","Rango de Edad"]))
     return df
 
 def insert_row(row):
@@ -72,8 +75,7 @@ def update_row_by_id(row_id:int, row:dict):
         )
 
 def delete_rows_by_ids(ids):
-    if not ids:
-        return
+    if not ids: return
     with get_conn() as conn:
         q = ",".join("?" for _ in ids)
         conn.execute(f"DELETE FROM asistencia WHERE id IN ({q})", ids)
@@ -84,16 +86,13 @@ def delete_all_rows():
 
 init_db()
 
-# ---------- Tabs (¡esto crea tab_form, tab_tabla y tab_excel!) ----------
-tab_form, tab_tabla, tab_excel = st.tabs(
-    ["📝 Formulario de Encabezado", "👥 Registros y edición", "⬇️ Excel oficial"]
-)
+# ---------- Tabs ----------
+tab_form, tab_tabla, tab_excel = st.tabs(["📝 Formulario de Encabezado", "👥 Registros y edición", "⬇️ Excel oficial"])
 
 # =========================
-# 📝 1) Formulario de Encabezado (para el Excel)
+# 📝 1) Encabezado para Excel
 # =========================
 with tab_form:
-    st.caption("Estos datos rellenan los campos superiores del Excel que se genera.")
     col1, col2 = st.columns([1,1])
     with col1:
         fecha_evento = st.date_input("Fecha", value=date.today())
@@ -103,9 +102,10 @@ with tab_form:
         hora_inicio = st.time_input("Hora Inicio", value=time(9,0))
         hora_fin = st.time_input("Hora Finalización", value=time(12,0))
         delegacion = st.text_input("Dirección / Delegación Policial", value="Naranjo")
+    st.caption("Estos datos se aplican al Excel generado.")
 
 # =========================
-# 👥 2) Registros: ver, editar, eliminar
+# 👥 2) Registros: ver / editar / eliminar
 # =========================
 with tab_tabla:
     st.markdown("### 👥 Registros recibidos")
@@ -124,7 +124,7 @@ with tab_tabla:
             use_container_width=True,
             column_config={
                 "Nº": st.column_config.NumberColumn("Nº", disabled=True),
-                "Seleccionar": st.column_config.CheckboxColumn("Seleccionar", help="Marca para eliminar"),
+                "Seleccionar": st.column_config.CheckboxColumn("Seleccionar"),
                 "Género": st.column_config.SelectboxColumn("Género", options=["F","M","LGBTIQ+"]),
                 "Sexo": st.column_config.SelectboxColumn("Sexo", options=["H","M","I"]),
                 "Rango de Edad": st.column_config.SelectboxColumn("Rango de Edad",
@@ -134,24 +134,24 @@ with tab_tabla:
         )
 
         c1, c2, c3, c4 = st.columns([1.2, 1.2, 1.2, 2])
-        btn_save = c1.button("💾 Guardar cambios", use_container_width=True)
+        btn_save   = c1.button("💾 Guardar cambios", use_container_width=True)
         btn_delete = c2.button("🗑️ Eliminar seleccionados", use_container_width=True)
         confirm_all = c4.checkbox("Confirmar vaciado total", value=False)
-        btn_clear = c3.button("🧹 Vaciar todos", use_container_width=True)
+        btn_clear  = c3.button("🧹 Vaciar todos", use_container_width=True)
 
         if btn_save:
             changes = 0
             for idx in edited.index:
-                if idx >= len(df_all):
-                    continue
-                row_orig = df_all.loc[idx]
-                row_new = edited.loc[idx]
+                if idx >= len(df_all): continue
+                orig = df_all.loc[idx]; new = edited.loc[idx]
                 fields = ["Nombre","Cédula de Identidad","Institución","Cargo","Teléfono","Género","Sexo","Rango de Edad"]
-                if any(str(row_orig[f]) != str(row_new[f]) for f in fields):
-                    update_row_by_id(int(row_orig["id"]), {f: row_new[f] for f in fields})
+                if any(str(orig[f]) != str(new[f]) for f in fields):
+                    update_row_by_id(int(orig["id"]), {f: new[f] for f in fields})
                     changes += 1
-            st.success(f"Se guardaron {changes} cambio(s).") if changes else st.info("No hay cambios para guardar.")
-            if changes: st.rerun()
+            if changes:
+                st.success(f"Se guardaron {changes} cambio(s)."); st.rerun()
+            else:
+                st.info("No hay cambios para guardar.")
 
         if btn_delete:
             idx_sel = edited.index[edited["Seleccionar"] == True].tolist()
@@ -164,38 +164,27 @@ with tab_tabla:
 
         if btn_clear:
             if confirm_all:
-                delete_all_rows(); st.success("Se vaciaron todos los registros."); st.rerun()
+                delete_all_rows()
+                st.success("Se vaciaron todos los registros."); st.rerun()
             else:
                 st.warning("Marca 'Confirmar vaciado total' para continuar.")
 
 # =========================
-# ⬇️ 3) Excel oficial (estructura replicada; SIN plantilla)
+# ⬇️ 3) Excel oficial (estructura replicada; sin plantilla)
 # =========================
 with tab_excel:
     st.markdown("### ⬇️ Descargar Excel oficial (estructura replicada)")
-    st.caption("Se recrea la minuta desde cero. Si agregas 'logo_izq.png' y/o 'logo_der.png' en la carpeta, se insertan arriba.")
-
-    df_all = fetch_all_df(include_id=True)
-
-    def _fecha_es(fecha: date) -> str:
-        meses = ["enero","febrero","marzo","abril","mayo","junio",
-                 "julio","agosto","septiembre","octubre","noviembre","diciembre"]
-        return f"{fecha.day} {meses[fecha.month-1]} {fecha.year}"
+    st.caption("Genera la minuta desde cero; si agregas 'logo_izq.png' y/o 'logo_der.png' junto a la app, se insertan.")
 
     def build_excel_official_from_scratch(
-        fecha: date,
-        lugar: str,
-        hora_ini: time,
-        hora_fin: time,
-        estrategia: str,
-        delegacion: str,
-        rows_df: pd.DataFrame,
-        per_page: int = 16
+        fecha: date, lugar: str, hora_ini: time, hora_fin: time,
+        estrategia: str, delegacion: str, rows_df: pd.DataFrame, per_page: int = 16
     ) -> bytes:
         try:
             from openpyxl import Workbook
             from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
             from openpyxl.drawing.image import Image as XLImage
+            from pathlib import Path
         except Exception:
             st.error("Falta 'openpyxl' en requirements.txt")
             return b""
@@ -209,19 +198,14 @@ with tab_excel:
         thin = Side(style="thin", color="000000")
         border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-        wb = Workbook()
-        ws0 = wb.active
-        ws0.title = "Minuta"
+        wb = Workbook(); ws0 = wb.active; ws0.title = "Minuta"
 
         def _setup_sheet(ws):
-            widths = {
-                "A": 2, "B": 6, "C": 22, "D": 22, "E": 22, "F": 18, "G": 22,
-                "H": 20, "I": 16, "J": 6, "K": 6, "L": 10, "M": 6, "N": 6, "O": 6,
-                "P": 14, "Q": 14, "R": 14, "S": 16
-            }
+            widths = {"A": 2, "B": 6, "C": 22, "D": 22, "E": 22, "F": 18, "G": 22,
+                      "H": 20, "I": 16, "J": 6, "K": 6, "L": 10, "M": 6, "N": 6, "O": 6,
+                      "P": 14, "Q": 14, "R": 14, "S": 16}
             for col, w in widths.items(): ws.column_dimensions[col].width = w
 
-            # logos opcionales
             try:
                 if Path("logo_izq.png").exists():
                     img = XLImage("logo_izq.png"); img.width *= 0.6; img.height *= 0.6
@@ -232,7 +216,7 @@ with tab_excel:
             except Exception:
                 pass
 
-            ws["B6"].value = f"Fecha: {_fecha_es(fecha)}"; ws["B6"].font = title_font
+            ws["B6"].value = f"Fecha: {fecha.day} {fecha.strftime('%B')} {fecha.year}"; ws["B6"].font = title_font
             ws["E6"].value = f"Lugar:  {lugar}"; ws.merge_cells("E6:I6"); ws["E6"].font = title_font
             ws["J6"].value = f"Hora Inicio: {hora_ini.strftime('%H:%M')}"; ws["J6"].font = title_font
             ws["Q6"].value = f"Hora Finalización: {hora_fin.strftime('%H:%M')}"; ws["Q6"].font = title_font
@@ -245,7 +229,6 @@ with tab_excel:
             ws["B8"].value = "Dirección / Delegación Policial:"
             ws["E8"].value = delegacion
 
-            # cabeceras de tabla
             ws.merge_cells("B9:E10"); ws["B9"].value = "Nombre"
             ws["F9"].value = "Cédula de Identidad"
             ws["G9"].value = "Institución"
@@ -260,10 +243,9 @@ with tab_excel:
                 c = ws[rng.split(":")[0]]; c.font = head_font; c.alignment = center; c.fill = group_fill
             for cell in ["F9","G9","H9","I9","S9"]:
                 ws[cell].font = head_font; ws[cell].alignment = center; ws[cell].fill = head_fill
-
-            ws["J10"].value, ws["K10"].value, ws["L10"].value = "F", "M", "LGBTIQ+"
-            ws["M10"].value, ws["N10"].value, ws["O10"].value = "H", "M", "I"
-            ws["P10"].value, ws["Q10"].value, ws["R10"].value = "18 a 35 años", "36 a 64 años", "65 años o más"
+            ws["J10"], ws["K10"], ws["L10"] = "F", "M", "LGBTIQ+"
+            ws["M10"], ws["N10"], ws["O10"] = "H", "M", "I"
+            ws["P10"], ws["Q10"], ws["R10"] = "18 a 35 años", "36 a 64 años", "65 años o más"
             for cell in ["J10","K10","L10","M10","N10","O10","P10","Q10","R10"]:
                 ws[cell].font = head_font; ws[cell].alignment = center; ws[cell].fill = head_fill
 
@@ -274,63 +256,50 @@ with tab_excel:
         def _fill_rows(ws, df_slice: pd.DataFrame, start_row: int = 11):
             for i, (_, row) in enumerate(df_slice.iterrows()):
                 r = start_row + i
-                ws[f"B{r}"].value = i + 1; ws[f"B{r}"].alignment = Alignment(horizontal="center", vertical="center")
-
+                ws[f"B{r}"].value = i + 1; ws[f"B{r}"].alignment = center
                 ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=5)  # C:E
-                ws[f"C{r}"].value = str(row["Nombre"] or ""); ws[f"C{r}"].alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-
+                ws[f"C{r}"].value = str(row["Nombre"] or ""); ws[f"C{r}"].alignment = left
                 ws[f"F{r}"].value = str(row["Cédula de Identidad"] or "")
                 ws[f"G{r}"].value = str(row["Institución"] or "")
                 ws[f"H{r}"].value = str(row["Cargo"] or "")
                 ws[f"I{r}"].value = str(row["Teléfono"] or "")
-
                 for col in ["J","K","L","M","N","O","P","Q","R"]: ws[f"{col}{r}"].value = ""
-
                 g = (row["Género"] or "").strip()
                 if g == "F": ws[f"J{r}"].value = "X"
                 elif g == "M": ws[f"K{r}"].value = "X"
                 elif g == "LGBTIQ+": ws[f"L{r}"].value = "X"
-
                 s = (row["Sexo"] or "").strip()
                 if s == "H": ws[f"M{r}"].value = "X"
                 elif s == "M": ws[f"N{r}"].value = "X"
                 elif s == "I": ws[f"O{r}"].value = "X"
-
                 e = (row["Rango de Edad"] or "").strip()
                 if e.startswith("18"): ws[f"P{r}"].value = "X"
                 elif e.startswith("36"): ws[f"Q{r}"].value = "X"
                 elif e.startswith("65"): ws[f"R{r}"].value = "X"
-
                 ws[f"S{r}"].value = "Virtual"
                 for c in range(2, 20): ws.cell(row=r, column=c).border = border_all
 
-        total = len(rows_df)
-        pages = max(1, (total + per_page - 1) // per_page) if total > 0 else 1
+        # construir archivo
+        df = fetch_all_df(include_id=False)
+        datos = df.drop(columns=["Nº"]) if not df.empty else df
+        if st.button("📥 Generar y descargar Excel oficial", use_container_width=True, type="primary"):
+            try:
+                from openpyxl import Workbook  # verificación rápida
+            except Exception:
+                st.error("Agrega 'openpyxl' a requirements.txt")
+            else:
+                xls_bytes = build_excel_official_from_scratch(
+                    fecha_evento, lugar, hora_inicio, hora_fin, estrategia, delegacion, datos
+                )
+                if xls_bytes:
+                    st.download_button(
+                        "⬇️ Descargar Excel (estructura replicada)",
+                        data=xls_bytes,
+                        file_name=f"Lista_Asistencia_Oficial_{date.today():%Y%m%d}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
 
-        for p in range(pages):
-            ws = wb["Minuta"] if p == 0 else wb.copy_worksheet(wb["Minuta"])
-            if p > 0: ws.title = f"Minuta {p+1}"
-            _setup_sheet(ws)
-            start = p * per_page
-            end = min(start + per_page, total)
-            df_slice = rows_df.iloc[start:end].reset_index(drop=True) if total > 0 else rows_df.head(0)
-            _fill_rows(ws, df_slice)
-
-        bio = BytesIO(); wb.save(bio); return bio.getvalue()
-
-    if st.button("📥 Generar y descargar Excel oficial", use_container_width=True, type="primary"):
-        datos = df_all[["Nombre","Cédula de Identidad","Institución","Cargo","Teléfono","Género","Sexo","Rango de Edad"]] if not df_all.empty else df_all
-        xls_bytes = build_excel_official_from_scratch(
-            fecha_evento, lugar, hora_inicio, hora_fin, estrategia, delegacion, datos
-        )
-        if xls_bytes:
-            st.download_button(
-                "⬇️ Descargar Excel (estructura replicada)",
-                data=xls_bytes,
-                file_name=f"Lista_Asistencia_Oficial_{date.today():%Y%m%d}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
 
 
 
