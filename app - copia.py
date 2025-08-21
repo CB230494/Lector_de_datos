@@ -237,7 +237,7 @@ if st.session_state.is_admin:
             else:
                 st.warning("Marca 'Confirmar vaciado total' para continuar.")
 
-    # Excel (dos hojas: Lista + Anotaciones)
+    # Excel (dos hojas: Lista + Anotaciones), con fix del TypeError
     st.markdown("### ⬇️ Excel oficial (idéntico a la plantilla)")
     st.caption("Coloca 'logo_izq.png' y 'logo_der.png' junto al .py para que aparezcan en la Hoja 1.")
 
@@ -393,15 +393,15 @@ if st.session_state.is_admin:
             an.column_dimensions[col].width = w
 
         # Encabezados de las dos columnas
-        an.merge_cells("B2:B2"); an["B2"].value = "Anotaciones Generales."; an["B2"].alignment = center; an["B2"].font = th_font; an["B2"].fill = celda_fill
-        an.merge_cells("D2:D2"); an["D2"].value = "Acuerdos."; an["D2"].alignment = center; an["D2"].font = th_font; an["D2"].fill = celda_fill
+        an["B2"].value = "Anotaciones Generales."; an["B2"].alignment = center; an["B2"].font = th_font; an["B2"].fill = celda_fill
+        an["D2"].value = "Acuerdos."; an["D2"].alignment = center; an["D2"].font = th_font; an["D2"].fill = celda_fill
 
-        # Marcos de texto (grandes)
+        # Marcos de texto (grandes, con bordes)
         for r in range(3, 23):
-            an.cell(row=r, column=2).alignment = Alignment(wrap_text=True, vertical="top")
-            an.cell(row=r, column=4).alignment = Alignment(wrap_text=True, vertical="top")
-            for c in [2,4]:
-                an.cell(row=r, column=c).border = border_all
+            for c in (2, 4):
+                cell = an.cell(row=r, column=c)
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+                cell.border = border_all
 
         # Colocar textos (multi-línea) en la parte superior
         if anotaciones_txt.strip():
@@ -409,32 +409,32 @@ if st.session_state.is_admin:
         if acuerdos_txt.strip():
             an["D3"].value = acuerdos_txt.strip()
 
-        # Pie: se finaliza / firma / cargo / sello
+        # Pie: se finaliza / firma / cargo / sello  (FIX sin "or Border()")
         row_pie = 24
-        an.merge_cells(start_row=row_pie, start_column=2, end_row=row_pie, end_column=2)
-        an["B"+str(row_pie)].value = f"Se Finaliza la Reunión a      {hora_fin.strftime('%H:%M')}"
-        an["B"+str(row_pie)].alignment = left
+        an[f"B{row_pie}"].value = f"Se Finaliza la Reunión a      {hora_fin.strftime('%H:%M')}"
+        an[f"B{row_pie}"].alignment = left
 
-        # Línea de firma y cargo
+        # Línea de firma y etiqueta
         row_firma = row_pie + 3
         an.merge_cells(f"B{row_firma}:D{row_firma}")
+        an[f"B{row_firma}"].border = Border(bottom=thin)         # línea de firma
         an[f"B{row_firma+1}"].value = "Nombre Completo y Firma"
         an[f"B{row_firma+1}"].alignment = center
-        an[f"B{row_firma}"].border = Border(bottom=thin)  # línea de firma
 
+        # Cargo
+        an.merge_cells(f"B{row_firma+3}:D{row_firma+3}")
         an[f"B{row_firma+3}"].value = "Cargo:"
         an[f"B{row_firma+3}"].alignment = left
-        an.merge_cells(f"B{row_firma+3}:D{row_firma+3}")
-        # Sello Policial (a la derecha)
+
+        # Sello policial a la derecha
         an[f"D{row_firma+5}"].value = "Sello Policial"
         an[f"D{row_firma+5}"].alignment = Alignment(horizontal="right")
 
-        # Bordes del pie (ligeros)
-        for c in [2,4]:
-            for r in range(row_pie, row_firma+6):
-                an.cell(row=r, column=c).border = an.cell(row=r, column=c).border or Border()
+        # Bordes del bloque inferior
+        for r in range(row_pie, row_firma + 6):
+            for c in (2, 4):
+                an.cell(row=r, column=c).border = border_all
 
-        # Listo
         bio = BytesIO(); wb.save(bio); return bio.getvalue()
 
     df_for_excel = fetch_all_df(include_id=False)
@@ -452,6 +452,8 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+
+
 
 
 
