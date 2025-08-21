@@ -11,7 +11,7 @@ from pathlib import Path
 st.set_page_config(page_title="Asistencia – Registro y Admin", layout="wide")
 
 # ---------- DB (SQLite) ----------
-DB_PATH = "asistencia.db"  # mismo archivo para toda la app
+DB_PATH = "asistencia.db"
 
 def get_conn():
     Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
@@ -108,7 +108,7 @@ with st.sidebar:
             st.session_state.is_admin = False
             st.rerun()
 
-# ---------- Contenido PÚBLICO (siempre visible) ----------
+# ---------- Contenido PÚBLICO ----------
 st.markdown("# 📋 Asistencia – Registro")
 st.markdown("### ➕ Agregar")
 with st.form("form_asistencia_publico", clear_on_submit=True):
@@ -155,7 +155,7 @@ if not df_pub.empty:
 else:
     st.info("Aún no hay registros guardados.")
 
-# ---------- Contenido ADMIN (solo si está logueado) ----------
+# ---------- Contenido ADMIN ----------
 if st.session_state.is_admin:
     st.markdown("---")
     st.markdown("# 🛠️ Panel del Administrador")
@@ -165,20 +165,18 @@ if st.session_state.is_admin:
     col1, col2 = st.columns([1,1])
     with col1:
         fecha_evento = st.date_input("Fecha", value=date.today())
-        # 👉 En blanco por defecto (solo “Estrategia” va prellenado)
-        lugar = st.text_input("Lugar", value="")
+        lugar = st.text_input("Lugar", value="")  # vacío
         estrategia = st.text_input("Estrategia o Programa", value="Estrategia Sembremos Seguridad")
     with col2:
         hora_inicio = st.time_input("Hora Inicio", value=time(9,0))
         hora_fin = st.time_input("Hora Finalización", value=time(12,0))
-        delegacion = st.text_input("Dirección / Delegación Policial", value="")
+        delegacion = st.text_input("Dirección / Delegación Policial", value="")  # vacío
 
     st.markdown("### 📝 Anotaciones y Acuerdos (para el Excel)")
     a_col, b_col = st.columns(2)
     anotaciones = a_col.text_area("Anotaciones Generales", height=260, placeholder="Escribe las anotaciones generales…")
     acuerdos    = b_col.text_area("Acuerdos", height=260, placeholder="Escribe los acuerdos…")
 
-    # Tabla editable + acciones
     st.markdown("### 👥 Registros y edición")
     df_all = fetch_all_df(include_id=True)
 
@@ -237,9 +235,9 @@ if st.session_state.is_admin:
             else:
                 st.warning("Marca 'Confirmar vaciado total' para continuar.")
 
-    # ===== Excel en UNA HOJA =====
+    # ===== Excel en UNA HOJA con líneas en Anotaciones/Acuerdos =====
     st.markdown("### ⬇️ Excel oficial (una sola hoja)")
-    st.caption("Coloca 'logo_izq.png' y/o 'logo_der.png' junto al .py para insertarlos en la banda superior.")
+    st.caption("Coloca 'logo_izq.png' y/o 'logo_der.png' junto al .py para insertarlos.")
 
     def build_excel_oficial_single(
         fecha: date, lugar: str, hora_ini: time, hora_fin: time,
@@ -255,9 +253,9 @@ if st.session_state.is_admin:
             st.error("Falta 'openpyxl' en requirements.txt")
             return b""
 
-        # Estilos/colores
+        # Estilos / colores
         azul_banda = "1F3B73"
-        gris_head  = "F2F2F2"
+        gris_head  = "D9D9D9"   # cabezales gris claro
         celda_fill = PatternFill("solid", fgColor=gris_head)
         banda_fill = PatternFill("solid", fgColor=azul_banda)
         th_font    = Font(bold=True)
@@ -267,10 +265,22 @@ if st.session_state.is_admin:
         thin       = Side(style="thin", color="000000")
         border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
 
+        # Mes en español
+        MESES_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"]
+        mes_es = MESES_ES[fecha.month-1]
+
         wb = Workbook()
         ws = wb.active; ws.title = "Lista"
 
-        # Anchos de columnas
+        # Config de página para impresión (A4 vertical, 1 página de ancho)
+        ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
+        ws.page_setup.paperSize = ws.PAPERSIZE_A4
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
+        ws.page_margins.left = ws.page_margins.right = 0.3
+        ws.page_margins.top = ws.page_margins.bottom = 0.4
+
+        # Columnas
         widths = {"A": 2, "B": 6, "C": 22, "D": 22, "E": 22, "F": 18, "G": 22,
                   "H": 20, "I": 16, "J": 6, "K": 6, "L": 10, "M": 6, "N": 6, "O": 6,
                   "P": 14, "Q": 14, "R": 14, "S": 16}
@@ -290,13 +300,13 @@ if st.session_state.is_admin:
         except Exception:
             pass
 
-        # Títulos centrales
+        # Títulos
         ws.merge_cells("F3:N3"); ws["F3"].value = "Modelo de Gestión Policial de Fuerza Pública"; ws["F3"].alignment=center
         ws.merge_cells("F4:N4"); ws["F4"].value = "Lista de Asistencia & Minuta"; ws["F4"].alignment=center
         ws.merge_cells("F5:N5"); ws["F5"].value = "Consecutivo:"; ws["F5"].alignment=center
 
         # Metadatos
-        ws["B6"].value = f"Fecha: {fecha.day} {fecha.strftime('%B')} {fecha.year}"; ws["B6"].font = title_font
+        ws["B6"].value = f"Fecha: {fecha.day} {mes_es} {fecha.year}"; ws["B6"].font = title_font
         ws["D6"].value = f"Lugar:  {lugar}" if lugar else "Lugar: "
         ws.merge_cells("D6:I6"); ws["D6"].font = title_font
         ws["J6"].value = f"Hora Inicio: {hora_ini.strftime('%H:%M')}"
@@ -341,19 +351,18 @@ if st.session_state.is_admin:
 
         ws.freeze_panes = "C11"
 
-        # Relleno de filas (todas en la misma hoja)
+        # Filas de asistencia
         start_row = 11
         for i, (_, row) in enumerate(rows_df.iterrows()):
             r = start_row + i
             ws[f"B{r}"].value = i + 1; ws[f"B{r}"].alignment = center
-            ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=5)  # C:E
+            ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=5)
             ws[f"C{r}"].value = str(row.get("Nombre","")); ws[f"C{r}"].alignment = left
             ws[f"F{r}"].value = str(row.get("Cédula de Identidad",""))
             ws[f"G{r}"].value = str(row.get("Institución",""))
             ws[f"H{r}"].value = str(row.get("Cargo",""))
             ws[f"I{r}"].value = str(row.get("Teléfono",""))
 
-            # Limpia marcas
             for col in ["J","K","L","M","N","O","P","Q","R"]: ws[f"{col}{r}"].value = ""
 
             g = (row.get("Género","") or "").strip()
@@ -377,7 +386,7 @@ if st.session_state.is_admin:
         last_data_row = start_row + len(rows_df) - 1 if len(rows_df) > 0 else 10
         notes_top = max(24, last_data_row + 2)
 
-        # ---- Bloques de Anotaciones y Acuerdos en la MISMA hoja ----
+        # ---- Anotaciones y Acuerdos con LÍNEAS ----
         # Cabeceras
         ws.merge_cells(start_row=notes_top, start_column=2, end_row=notes_top, end_column=10)  # B..J
         ws.merge_cells(start_row=notes_top, start_column=12, end_row=notes_top, end_column=19) # L..S
@@ -386,34 +395,52 @@ if st.session_state.is_admin:
         ws[f"B{notes_top}"].font = th_font; ws[f"L{notes_top}"].font = th_font
         ws[f"B{notes_top}"].fill = celda_fill; ws[f"L{notes_top}"].fill = celda_fill
 
-        # Cajas con líneas (B..J y L..S filas notes_top+1 .. notes_top+20)
-        for r in range(notes_top+1, notes_top+21):
-            for c in range(2, 11):  # B..J
+        # Líneas horizontales (15 renglones)
+        line_rows = 15
+        for r in range(notes_top+1, notes_top+1+line_rows):
+            ws.row_dimensions[r].height = 16
+            # Marco izquierdo (B..J)
+            for c in range(2, 11):
                 cell = ws.cell(row=r, column=c)
-                cell.alignment = Alignment(wrap_text=True, vertical="top")
-                cell.border = border_all
-            for c in range(12, 20): # L..S
+                # bordes: líneas horizontales + marco lateral
+                left_b  = thin if c == 2 else None
+                right_b = thin if c == 10 else None
+                cell.border = Border(
+                    left=left_b or Side(style=None),
+                    right=right_b or Side(style=None),
+                    top=Side(style=None),
+                    bottom=thin
+                )
+                cell.alignment = Alignment(vertical="top")
+            # Marco derecho (L..S)
+            for c in range(12, 20):
                 cell = ws.cell(row=r, column=c)
-                cell.alignment = Alignment(wrap_text=True, vertical="top")
-                cell.border = border_all
+                left_b  = thin if c == 12 else None
+                right_b = thin if c == 19 else None
+                cell.border = Border(
+                    left=left_b or Side(style=None),
+                    right=right_b or Side(style=None),
+                    top=Side(style=None),
+                    bottom=thin
+                )
+                cell.alignment = Alignment(vertical="top")
 
-        # Textos
+        # Texto (se pega en la parte superior; las líneas quedan debajo)
         if anotaciones_txt.strip():
             ws[f"B{notes_top+1}"].value = anotaciones_txt.strip()
         if acuerdos_txt.strip():
             ws[f"L{notes_top+1}"].value = acuerdos_txt.strip()
 
         # Pie: Se Finaliza / Firma / Cargo / Sello
-        row_pie = notes_top + 22
-        ws.merge_cells(start_row=row_pie, start_column=2, end_row=row_pie, end_column=10)   # B..J
-        ws[f"B{row_pie}"].value = f"Se Finaliza la Reunión a      {hora_fin.strftime('%H:%M')}"
+        row_pie = notes_top + line_rows + 2
+        ws.merge_cells(start_row=row_pie, start_column=2, end_row=row_pie, end_column=10)
+        ws[f"B{row_pie}"].value = f"Se Finaliza la Reunión a:   {hora_fin.strftime('%H:%M')}"
         ws[f"B{row_pie}"].alignment = left
 
         row_firma = row_pie + 3
-        ws.merge_cells(start_row=row_firma, start_column=2, end_row=row_firma, end_column=10)  # línea
-        from openpyxl.styles import Border, Side
-        thin = Side(style="thin", color="000000")
-        ws[f"B{row_firma}"].border = Border(bottom=thin)
+        ws.merge_cells(start_row=row_firma, start_column=2, end_row=row_firma, end_column=10)
+        thin_line = Side(style="thin", color="000000")
+        ws[f"B{row_firma}"].border = Border(bottom=thin_line)
         ws[f"B{row_firma+1}"].value = "Nombre Completo y Firma"
         ws[f"B{row_firma+1}"].alignment = center
 
