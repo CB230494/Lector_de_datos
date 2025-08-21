@@ -1,65 +1,63 @@
 # =========================
-# 📋 Lista de asistencia – Seguimiento (APP PÚBLICA - SOLO REGISTRO Y VISTA)
+# 📋 Asistencia – Público (Supabase Storage CSV)
 # =========================
 import streamlit as st
 import pandas as pd
-from datetime import date
-import sqlite3
+from io import BytesIO
+from supabase import create_client
+import sys
 
 st.set_page_config(page_title="Asistencia - Público", layout="wide")
 st.markdown("## 📋 Lista de asistencia – Seguimiento de líneas de acción (Público)")
 
-# ---------- DB (SQLite persistente) ----------
-DB_PATH = "asistencia.db"
+# ---------- CONFIG STORAGE (usa tu proyecto) ----------
+SUPABASE_URL = "https://fuqenmijstetuwhdulax.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1cWVubWlqc3RldHV3aGR1bGF4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMyODM4MzksImV4cCI6MjA2ODg1OTgzOX0.9JdF70hcLCVCa0-lCd7yoSFKtO72niZbahM-u2ycAVg"
+BUCKET = "asistencia"
+OBJECT = "asistencia.csv"
 
-def get_conn():
-    return sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
+HEADER = ["Nombre","Cédula de Identidad","Institución","Cargo","Teléfono","Género","Sexo","Rango de Edad"]
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def init_db():
-    with get_conn() as conn:
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA synchronous=NORMAL;")
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS asistencia(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-            nombre TEXT, cedula TEXT, institucion TEXT,
-            cargo TEXT, telefono TEXT,
-            genero TEXT, sexo TEXT, edad TEXT
-        );
-        """)
-
-def insert_row(row):
-    with get_conn() as conn:
-        conn.execute("""INSERT INTO asistencia
-            (nombre, cedula, institucion, cargo, telefono, genero, sexo, edad)
-            VALUES (?,?,?,?,?,?,?,?)""",
-            (row["Nombre"], row["Cédula de Identidad"], row["Institución"],
-             row["Cargo"], row["Teléfono"], row["Género"], row["Sexo"], row["Rango de Edad"])
-        )
+def _ensure_remote_csv():
+    """Si no existe el archivo, lo crea vacío con encabezados."""
+    try:
+        supabase.storage.from_(BUCKET).download(OBJECT)
+    except Exception as e:
+        # Si el objeto no existe, lo creamos; si el bucket no existe, mostramos error claro.
+        msg = str(e).lower()
+        if "not found" in msg or "object not found" in msg:
+            empty = pd.DataFrame(columns=HEADER).to_csv(index=False).encode("utf-8")
+            try:
+                supabase.storage.from_(BUCKET).upload(OBJECT, empty, {"content-type": "text/csv"}, upsert=True)
+            except Exception as e2:
+                st.error("No se pudo crear el archivo remoto. Verifica que exista el bucket "
+                         f"**{BUCKET}** en Supabase Storage.")
+                st.stop()
+        elif "bucket" in msg:
+            st.error(f"No existe el bucket **{BUCKET}** en Supabase Storage. Créalo y vuelve a intentar.")
+            st.stop()
 
 def fetch_all_df():
-    with get_conn() as conn:
-        df = pd.read_sql_query("""
-            SELECT id,
-                   nombre  AS 'Nombre',
-                   cedula  AS 'Cédula de Identidad',
-                   institucion AS 'Institución',
-                   cargo   AS 'Cargo',
-                   telefono AS 'Teléfono',
-                   genero  AS 'Género',
-                   sexo    AS 'Sexo',
-                   edad    AS 'Rango de Edad'
-            FROM asistencia
-            ORDER BY id ASC
-        """, conn)
-    if not df.empty:
-        df.insert(0, "Nº", range(1, len(df)+1))
+    _ensure_remote_csv()
+    data = supabase.storage.from_(BUCKET).download(OBJECT)
+    df = pd.read_csv(BytesIO(data), dtype=str).fillna("")
+    if df.empty:
+        return pd.DataFrame(columns=["Nº"] + HEADER)
+    df.insert(0, "Nº", range(1, len(df)+1))
     return df
 
-init_db()
+def append_row(d):
+    _ensure_remote_csv()
+    data = supabase.storage.from_(BUCKET).download(OBJECT)
+    df = pd.read_csv(BytesIO(data), dtype=str) if data else pd.DataFrame(columns=HEADER)
+    df = pd.concat([df, pd.DataFrame([d], columns=HEADER)], ignore_index=True)
+    supabase.storage.from_(BUCKET).upload(
+        OBJECT, df.to_csv(index=False).encode("utf-8"),
+        {"content-type": "text/csv"}, upsert=True
+    )
 
-# ---------- Formulario sencillo ----------
+# ---------- Formulario ----------
 with st.form("form_asistencia_publico", clear_on_submit=True):
     c1, c2, c3 = st.columns([1.2, 1, 1])
     nombre      = c1.text_input("Nombre")
@@ -91,24 +89,17 @@ with st.form("form_asistencia_publico", clear_on_submit=True):
                 "Sexo": sexo,
                 "Rango de Edad": edad
             }
-            insert_row(fila)
+            append_row(fila)
             st.success("Registro guardado.")
 
-# ---------- Vista de todo lo recibido (solo lectura) ----------
+# ---------- Vista (solo lectura) ----------
 st.markdown("### 📥 Registros recibidos")
 df_all = fetch_all_df()
-
 if not df_all.empty:
-    st.dataframe(
-        df_all[["Nº","Nombre","Cédula de Identidad","Institución","Cargo","Teléfono",
-                 "Género","Sexo","Rango de Edad"]],
-        use_container_width=True,
-        hide_index=True
-    )
+    st.dataframe(df_all[["Nº"] + HEADER], use_container_width=True, hide_index=True)
 else:
     st.info("Aún no hay registros guardados.")
 
-# NOTA: En la app pública NO existen botones de eliminar ni descarga de Excel.
 
 
 
