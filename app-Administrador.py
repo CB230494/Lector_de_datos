@@ -1,10 +1,10 @@
 # =========================
-# 🛠️ Panel del Administrador – Asistencia (editar, eliminar, Excel oficial)
+# 🛠️ Panel del Administrador – Asistencia (editar, eliminar, Excel oficial con plantilla)
 # =========================
 import streamlit as st
 import pandas as pd
 from io import BytesIO
-from datetime import date, datetime, time
+from datetime import date, time
 import sqlite3
 from pathlib import Path
 
@@ -98,8 +98,9 @@ with tab_form:
         lugar = st.text_input("Lugar", value="sesión virtual")
         estrategia = st.text_input("Estrategia o Programa", value="Estrategia Sembremos Seguridad")
     with col2:
-        hora_inicio = st.time_input("Hora Inicio", value=time(9,0))
-        hora_fin = st.time_input("Hora Finalización", value=time(12,0))
+        from datetime import time as _t
+        hora_inicio = st.time_input("Hora Inicio", value=_t(9,0))
+        hora_fin = st.time_input("Hora Finalización", value=_t(12,0))
         delegacion = st.text_input("Dirección / Delegación Policial", value="Naranjo")
 
     st.info("Cuando descargues el Excel, se aplicarán estos datos en la plantilla.")
@@ -114,7 +115,6 @@ with tab_tabla:
     if df_all.empty:
         st.info("Aún no hay registros guardados.")
     else:
-        # Editor editable (excepto Nº)
         editable = df_all.copy()
         editable["Seleccionar"] = False
 
@@ -141,14 +141,12 @@ with tab_tabla:
         btn_clear = c3.button("🧹 Vaciar todos", use_container_width=True)
 
         if btn_save:
-            # Detectar y aplicar cambios campo a campo
             changes = 0
             for idx in edited.index:
                 if idx >= len(df_all):
                     continue
                 row_orig = df_all.loc[idx]
                 row_new = edited.loc[idx]
-                # Si cambió algo (excepto Nº y Seleccionar)
                 fields = ["Nombre","Cédula de Identidad","Institución","Cargo","Teléfono","Género","Sexo","Rango de Edad"]
                 diff = any(str(row_orig[f]) != str(row_new[f]) for f in fields)
                 if diff:
@@ -182,14 +180,19 @@ with tab_tabla:
                 st.warning("Marca la casilla 'Confirmar vaciado total' para continuar.")
 
 # =========================
-# ⬇️ 3) Excel oficial (plantilla con logos)
+# ⬇️ 3) Excel oficial (usa la PLANTILLA directamente)
 # =========================
 with tab_excel:
-    st.markdown("### ⬇️ Descargar Excel oficial con logos (plantilla)")
-    st.caption("Se usa la plantilla que compartiste y se rellenan los encabezados y la tabla de asistencia.")
-    TEMPLATE_PATH = "LA-2025-NARANJO.xlsx"   # coloca este archivo junto a este .py
+    st.markdown("### ⬇️ Descargar Excel oficial con logos (usa tu plantilla tal cual)")
+    st.caption("Se usa **LA-2025-NARANJO.xlsx** directamente. Se rellenan encabezados y tabla en la hoja 'Minuta'; si hay más de 16 registros, se generan hojas 'Minuta 2', 'Minuta 3', etc. dentro del **mismo archivo**.")
+    TEMPLATE_PATH = "LA-2025-NARANJO.xlsx"   # deja este archivo junto al .py
 
     df_all = fetch_all_df(include_id=True)
+
+    def _fecha_es(fecha: date) -> str:
+        meses = ["enero","febrero","marzo","abril","mayo","junio",
+                 "julio","agosto","septiembre","octubre","noviembre","diciembre"]
+        return f"{fecha.day} {meses[fecha.month-1]} {fecha.year}"
 
     def build_excel_from_template(template_path: str,
                                   fecha: date,
@@ -200,29 +203,23 @@ with tab_excel:
                                   delegacion: str,
                                   rows_df: pd.DataFrame) -> bytes:
         """
-        Rellena la plantilla 'Minuta':
+        Rellena la propia plantilla (sin recrear libro nuevo):
           - B6: 'Fecha: ...'
           - E6: 'Lugar: ...'
           - J6: 'Hora Inicio: ...'
           - Q6: 'Hora Finalización: ...'
           - B7: 'Estrategia o Programa: ...'
           - E8: delegación
-        Tabla (desde fila 11):
-          - B: Nº (ya viene impreso en plantilla)
-          - C:E -> Nombre (merge por fila)
-          - F -> Cédula
-          - G -> Institución
-          - H -> Cargo
-          - I -> Teléfono
-          - J/K/L -> Género (F/M/LGBTIQ+)
-          - M/N/O -> Sexo (H/M/I)
-          - P/Q/R -> Rango de Edad (18-35 / 36-64 / 65+)
-          - S -> FIRMA (se deja como está en plantilla)
-        Si hay más de 16 registros, duplica la hoja 'Minuta' en páginas.
+        Tabla (desde fila 11 aprox., detectada por merges C:E):
+          - Nombre en C:E (merge por fila)
+          - F Cédula | G Institución | H Cargo | I Teléfono
+          - J/K/L Género (F/M/LGBTIQ+) marcados con 'X'
+          - M/N/O Sexo (H/M/I) marcados con 'X'
+          - P/Q/R Rango de Edad (18-35 / 36-64 / 65+)
+        Si hay más de 16 registros, se copian hojas 'Minuta' adicionales dentro del MISMO workbook.
         """
         try:
             from openpyxl import load_workbook
-            from openpyxl.utils import get_column_letter
         except Exception:
             st.error("Falta 'openpyxl' en requirements.txt")
             return b""
@@ -232,15 +229,14 @@ with tab_excel:
             st.error(f"No se encontró la plantilla: {template_path}")
             return b""
 
-        wb_master = load_workbook(p, data_only=False)
-        # Hoja base
-        if "Minuta" not in wb_master.sheetnames:
+        wb = load_workbook(p, data_only=False, keep_vba=False)
+        if "Minuta" not in wb.sheetnames:
             st.error("La plantilla no contiene una hoja llamada 'Minuta'.")
             return b""
 
-        # Cantidad de filas por página (según plantilla)
-        # Detectamos merges Cxx:Exx para contar filas formateadas
-        ws_base = wb_master["Minuta"]
+        ws_base = wb["Minuta"]
+
+        # Detectar filas de la tabla por merges C:E (mantiene formato/logo)
         slots = []
         for r in ws_base.merged_cells.ranges:
             if r.min_col == 3 and r.max_col == 5 and r.min_row == r.max_row:
@@ -249,51 +245,53 @@ with tab_excel:
         if not slots:
             st.error("No se detectaron filas de tabla en la plantilla (C:E merge por fila).")
             return b""
-        start_row = slots[0]  # típicamente 11
-        per_page = len(slots) # típicamente 16
+        start_row = slots[0]
+        per_page = len(slots)  # normalmente 16
 
-        # Función para rellenar una hoja concreta con encabezados + una porción de datos
+        # Particionar registros en páginas
+        total = len(rows_df)
+        pages = max(1, (total + per_page - 1) // per_page) if total > 0 else 1
+
+        # Crear copias de 'Minuta' si se necesitan más páginas
+        sheet_names = ["Minuta"]
+        for p_i in range(1, pages):
+            ws_copy = wb.copy_worksheet(ws_base)  # dentro del MISMO libro => conserva logos/estilos
+            ws_copy.title = f"Minuta {p_i+1}"
+            sheet_names.append(ws_copy.title)
+
+        # Función para rellenar una hoja con su porción
         def fill_sheet(ws, df_slice: pd.DataFrame):
-            # Encabezados
-            fecha_txt = fecha.strftime("%-d %B %Y") if hasattr(fecha, "strftime") else str(fecha)
-            hora_ini_txt = hora_ini.strftime("%H:%M")
-            hora_fin_txt = hora_fin.strftime("%H:%M")
-            ws["B6"].value = f"Fecha: {fecha_txt}"
+            # Encabezados (se llenan siempre para que quede exacto)
+            ws["B6"].value = f"Fecha: {_fecha_es(fecha)}"
             ws["E6"].value = f"Lugar:  {lugar}"
-            ws["J6"].value = f"Hora Inicio: {hora_ini_txt}"
-            ws["Q6"].value = f"Hora Finalización: {hora_fin_txt}"
+            ws["J6"].value = f"Hora Inicio: {hora_ini.strftime('%H:%M')}"
+            ws["Q6"].value = f"Hora Finalización: {hora_fin.strftime('%H:%M')}"
             ws["B7"].value = f"Estrategia o Programa: {estrategia}"
             ws["E8"].value = delegacion
 
-            # Tabla
-            # Mapas de columnas
-            COL_NUM = "B"
-            COL_NOMBRE_L = "C"  # C:E merged
-            COL_NOMBRE_R = "E"
+            # Columnas de la tabla
+            COL_NOMBRE_L = "C"  # merge C:E
             COL_CED = "F"
             COL_INST = "G"
             COL_CARGO = "H"
             COL_TEL = "I"
-            # Género
-            COL_GEN_F = "J"; COL_GEN_M = "K"; COL_GEN_L = "L"
-            # Sexo
-            COL_SEX_H = "M"; COL_SEX_M = "N"; COL_SEX_I = "O"
-            # Edad
-            COL_ED_1 = "P"; COL_ED_2 = "Q"; COL_ED_3 = "R"
+            COL_GEN_F, COL_GEN_M, COL_GEN_L = "J", "K", "L"
+            COL_SEX_H, COL_SEX_M, COL_SEX_I = "M", "N", "O"
+            COL_ED_1, COL_ED_2, COL_ED_3 = "P", "Q", "R"
 
+            # Llenar filas
             for i, (_, row) in enumerate(df_slice.iterrows()):
                 r = start_row + i
-                # Nombre (en merge C:E) -> escribimos en la izquierda del merge
                 ws[f"{COL_NOMBRE_L}{r}"].value = str(row["Nombre"]) if pd.notna(row["Nombre"]) else ""
-                # Ced, Inst, Cargo, Tel
                 ws[f"{COL_CED}{r}"].value = str(row["Cédula de Identidad"] or "")
                 ws[f"{COL_INST}{r}"].value = str(row["Institución"] or "")
                 ws[f"{COL_CARGO}{r}"].value = str(row["Cargo"] or "")
                 ws[f"{COL_TEL}{r}"].value = str(row["Teléfono"] or "")
-                # Limpiar marcas previas
+
+                # Limpiar checkboxes en esa fila (no tocamos la columna 'S' FIRMA)
                 for c in [COL_GEN_F, COL_GEN_M, COL_GEN_L, COL_SEX_H, COL_SEX_M, COL_SEX_I, COL_ED_1, COL_ED_2, COL_ED_3]:
                     ws[f"{c}{r}"].value = ""
-                # Marcas
+
                 g = (row["Género"] or "").strip()
                 if g == "F": ws[f"{COL_GEN_F}{r}"].value = "X"
                 elif g == "M": ws[f"{COL_GEN_M}{r}"].value = "X"
@@ -309,37 +307,27 @@ with tab_excel:
                 elif e.startswith("36"): ws[f"{COL_ED_2}{r}"].value = "X"
                 elif e.startswith("65"): ws[f"{COL_ED_3}{r}"].value = "X"
 
-        # Paginado en copias de la hoja
-        total = len(rows_df)
-        if total == 0:
-            wb_out = wb_master
-            bio = BytesIO(); wb_out.save(bio); return bio.getvalue()
+            # Opcional: limpiar restos de filas no usadas de esta página (excepto FIRMA en S)
+            # for i in range(len(df_slice), per_page):
+            #     r = start_row + i
+            #     for c in [COL_NOMBRE_L, COL_CED, COL_INST, COL_CARGO, COL_TEL,
+            #               COL_GEN_F, COL_GEN_M, COL_GEN_L, COL_SEX_H, COL_SEX_M, COL_SEX_I,
+            #               COL_ED_1, COL_ED_2, COL_ED_3]:
+            #         ws[f"{c}{r}"].value = ""
 
-        # Creamos un nuevo libro para no modificar el master original en memoria
-        from openpyxl import Workbook
-        wb_out = Workbook()
-        # Quitar hoja por defecto
-        default_ws = wb_out.active
-        wb_out.remove(default_ws)
-
-        pages = (total + per_page - 1) // per_page
-        for p in range(pages):
-            start = p * per_page
+        # Rellenar cada página en su hoja correspondiente
+        for p_i in range(pages):
+            start = p_i * per_page
             end = min(start + per_page, total)
-            df_slice = rows_df.iloc[start:end].reset_index(drop=True)
-            # Copiar hoja "Minuta"
-            ws_copy = wb_master.copy_worksheet(wb_master["Minuta"])
-            ws_copy.title = "Minuta" if p == 0 else f"Minuta {p+1}"
-            # Rellenar
-            fill_sheet(ws_copy, df_slice)
-            # Agregar la hoja rellena al libro de salida
-            wb_out._add_sheet(ws_copy)  # uso interno; mantiene estilos/merges
+            df_slice = rows_df.iloc[start:end].reset_index(drop=True) if total > 0 else rows_df.head(0)
+            ws = wb[sheet_names[p_i]]
+            fill_sheet(ws, df_slice)
 
-        # El master quedará con la original + copias; pero wb_out ya tiene las rellenas.
-        bio = BytesIO(); wb_out.save(bio); return bio.getvalue()
+        bio = BytesIO(); wb.save(bio); return bio.getvalue()
 
     # Botón de descarga (usa plantilla)
     if st.button("📥 Generar y descargar Excel oficial", use_container_width=True, type="primary"):
+        datos = df_all[["Nombre","Cédula de Identidad","Institución","Cargo","Teléfono","Género","Sexo","Rango de Edad"]] if not df_all.empty else df_all
         xls_bytes = build_excel_from_template(
             TEMPLATE_PATH,
             fecha_evento,
@@ -348,7 +336,7 @@ with tab_excel:
             hora_fin,
             estrategia,
             delegacion,
-            df_all[["Nombre","Cédula de Identidad","Institución","Cargo","Teléfono","Género","Sexo","Rango de Edad"]] if not df_all.empty else df_all
+            datos
         )
         if xls_bytes:
             st.download_button(
@@ -358,8 +346,6 @@ with tab_excel:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
-
-
 
 
 
