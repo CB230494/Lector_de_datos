@@ -165,7 +165,7 @@ if st.session_state.is_admin:
     col1, col2 = st.columns([1,1])
     with col1:
         fecha_evento = st.date_input("Fecha", value=date.today())
-        # 👉 En blanco por defecto (solo Estrategia queda prellenado)
+        # 👉 En blanco por defecto (solo “Estrategia” va prellenado)
         lugar = st.text_input("Lugar", value="")
         estrategia = st.text_input("Estrategia o Programa", value="Estrategia Sembremos Seguridad")
     with col2:
@@ -173,7 +173,7 @@ if st.session_state.is_admin:
         hora_fin = st.time_input("Hora Finalización", value=time(12,0))
         delegacion = st.text_input("Dirección / Delegación Policial", value="")
 
-    st.markdown("### 📝 Anotaciones y Acuerdos (para la hoja 2 del Excel)")
+    st.markdown("### 📝 Anotaciones y Acuerdos (para el Excel)")
     a_col, b_col = st.columns(2)
     anotaciones = a_col.text_area("Anotaciones Generales", height=260, placeholder="Escribe las anotaciones generales…")
     acuerdos    = b_col.text_area("Acuerdos", height=260, placeholder="Escribe los acuerdos…")
@@ -237,14 +237,14 @@ if st.session_state.is_admin:
             else:
                 st.warning("Marca 'Confirmar vaciado total' para continuar.")
 
-    # Excel (dos hojas: Lista + Anotaciones), con fix del TypeError
-    st.markdown("### ⬇️ Excel oficial (idéntico a la plantilla)")
-    st.caption("Coloca 'logo_izq.png' y 'logo_der.png' junto al .py para que aparezcan en la Hoja 1.")
+    # ===== Excel en UNA HOJA =====
+    st.markdown("### ⬇️ Excel oficial (una sola hoja)")
+    st.caption("Coloca 'logo_izq.png' y/o 'logo_der.png' junto al .py para insertarlos en la banda superior.")
 
-    def build_excel_oficial(
+    def build_excel_oficial_single(
         fecha: date, lugar: str, hora_ini: time, hora_fin: time,
         estrategia: str, delegacion: str, rows_df: pd.DataFrame,
-        anotaciones_txt: str, acuerdos_txt: str, per_page: int = 16
+        anotaciones_txt: str, acuerdos_txt: str
     ) -> bytes:
         try:
             from openpyxl import Workbook
@@ -255,7 +255,7 @@ if st.session_state.is_admin:
             st.error("Falta 'openpyxl' en requirements.txt")
             return b""
 
-        # Paleta/estilos (colores de la plantilla)
+        # Estilos/colores
         azul_banda = "1F3B73"
         gris_head  = "F2F2F2"
         celda_fill = PatternFill("solid", fgColor=gris_head)
@@ -270,17 +270,16 @@ if st.session_state.is_admin:
         wb = Workbook()
         ws = wb.active; ws.title = "Lista"
 
-        # -------- Hoja 1: cabecera superior (banda azul + logos + texto)
+        # Anchos de columnas
         widths = {"A": 2, "B": 6, "C": 22, "D": 22, "E": 22, "F": 18, "G": 22,
                   "H": 20, "I": 16, "J": 6, "K": 6, "L": 10, "M": 6, "N": 6, "O": 6,
                   "P": 14, "Q": 14, "R": 14, "S": 16}
         for col, w in widths.items(): ws.column_dimensions[col].width = w
 
         # Banda azul
-        ws.merge_cells("B2:S2")
-        ws["B2"].fill = banda_fill
+        ws.merge_cells("B2:S2"); ws["B2"].fill = banda_fill
 
-        # Logos (opcional)
+        # Logos
         try:
             if _Path("logo_izq.png").exists():
                 img = XLImage("logo_izq.png"); img.height = int(img.height*0.6); img.width = int(img.width*0.6)
@@ -296,7 +295,7 @@ if st.session_state.is_admin:
         ws.merge_cells("F4:N4"); ws["F4"].value = "Lista de Asistencia & Minuta"; ws["F4"].alignment=center
         ws.merge_cells("F5:N5"); ws["F5"].value = "Consecutivo:"; ws["F5"].alignment=center
 
-        # Bloque de metadatos
+        # Metadatos
         ws["B6"].value = f"Fecha: {fecha.day} {fecha.strftime('%B')} {fecha.year}"; ws["B6"].font = title_font
         ws["D6"].value = f"Lugar:  {lugar}" if lugar else "Lugar: "
         ws.merge_cells("D6:I6"); ws["D6"].font = title_font
@@ -342,121 +341,106 @@ if st.session_state.is_admin:
 
         ws.freeze_panes = "C11"
 
-        # Relleno de filas
-        def fill_rows(ws, df_slice: pd.DataFrame, start_row: int = 11):
-            for i, (_, row) in enumerate(df_slice.iterrows()):
-                r = start_row + i
-                ws[f"B{r}"].value = i + 1; ws[f"B{r}"].alignment = center
-                ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=5)  # C:E
-                ws[f"C{r}"].value = str(row.get("Nombre","")); ws[f"C{r}"].alignment = left
-                ws[f"F{r}"].value = str(row.get("Cédula de Identidad",""))
-                ws[f"G{r}"].value = str(row.get("Institución",""))
-                ws[f"H{r}"].value = str(row.get("Cargo",""))
-                ws[f"I{r}"].value = str(row.get("Teléfono",""))
+        # Relleno de filas (todas en la misma hoja)
+        start_row = 11
+        for i, (_, row) in enumerate(rows_df.iterrows()):
+            r = start_row + i
+            ws[f"B{r}"].value = i + 1; ws[f"B{r}"].alignment = center
+            ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=5)  # C:E
+            ws[f"C{r}"].value = str(row.get("Nombre","")); ws[f"C{r}"].alignment = left
+            ws[f"F{r}"].value = str(row.get("Cédula de Identidad",""))
+            ws[f"G{r}"].value = str(row.get("Institución",""))
+            ws[f"H{r}"].value = str(row.get("Cargo",""))
+            ws[f"I{r}"].value = str(row.get("Teléfono",""))
 
-                # Limpia marcas
-                for col in ["J","K","L","M","N","O","P","Q","R"]: ws[f"{col}{r}"].value = ""
+            # Limpia marcas
+            for col in ["J","K","L","M","N","O","P","Q","R"]: ws[f"{col}{r}"].value = ""
 
-                g = (row.get("Género","") or "").strip()
-                if g == "F": ws[f"J{r}"].value = "X"
-                elif g == "M": ws[f"K{r}"].value = "X"
-                elif g == "LGBTIQ+": ws[f"L{r}"].value = "X"
+            g = (row.get("Género","") or "").strip()
+            if g == "F": ws[f"J{r}"].value = "X"
+            elif g == "M": ws[f"K{r}"].value = "X"
+            elif g == "LGBTIQ+": ws[f"L{r}"].value = "X"
 
-                s = (row.get("Sexo","") or "").strip()
-                if s == "H": ws[f"M{r}"].value = "X"
-                elif s == "M": ws[f"N{r}"].value = "X"
-                elif s == "I": ws[f"O{r}"].value = "X"
+            s = (row.get("Sexo","") or "").strip()
+            if s == "H": ws[f"M{r}"].value = "X"
+            elif s == "M": ws[f"N{r}"].value = "X"
+            elif s == "I": ws[f"O{r}"].value = "X"
 
-                e = (row.get("Rango de Edad","") or "").strip()
-                if e.startswith("18"): ws[f"P{r}"].value = "X"
-                elif e.startswith("36"): ws[f"Q{r}"].value = "X"
-                elif e.startswith("65"): ws[f"R{r}"].value = "X"
+            e = (row.get("Rango de Edad","") or "").strip()
+            if e.startswith("18"): ws[f"P{r}"].value = "X"
+            elif e.startswith("36"): ws[f"Q{r}"].value = "X"
+            elif e.startswith("65"): ws[f"R{r}"].value = "X"
 
-                ws[f"S{r}"].value = "Virtual"
-                for c in range(2, 20): ws.cell(row=r, column=c).border = border_all
+            ws[f"S{r}"].value = "Virtual"
+            for c in range(2, 20): ws.cell(row=r, column=c).border = border_all
 
-        total = len(rows_df)
-        pages = max(1, (total + per_page - 1) // per_page) if total > 0 else 1
-        for p in range(pages):
-            sheet = ws if p == 0 else wb.copy_worksheet(ws)
-            if p > 0: sheet.title = f"Lista {p+1}"
-            start = p * per_page
-            end = min(start + per_page, total)
-            df_slice = rows_df.iloc[start:end].reset_index(drop=True) if total > 0 else rows_df.head(0)
-            fill_rows(sheet, df_slice)
+        last_data_row = start_row + len(rows_df) - 1 if len(rows_df) > 0 else 10
+        notes_top = max(24, last_data_row + 2)
 
-        # -------- Hoja 2: Anotaciones (idéntica al diseño)
-        an = wb.create_sheet("Anotaciones")
+        # ---- Bloques de Anotaciones y Acuerdos en la MISMA hoja ----
+        # Cabeceras
+        ws.merge_cells(start_row=notes_top, start_column=2, end_row=notes_top, end_column=10)  # B..J
+        ws.merge_cells(start_row=notes_top, start_column=12, end_row=notes_top, end_column=19) # L..S
+        ws[f"B{notes_top}"].value = "Anotaciones Generales."; ws[f"B{notes_top}"].alignment = center
+        ws[f"L{notes_top}"].value = "Acuerdos."; ws[f"L{notes_top}"].alignment = center
+        ws[f"B{notes_top}"].font = th_font; ws[f"L{notes_top}"].font = th_font
+        ws[f"B{notes_top}"].fill = celda_fill; ws[f"L{notes_top}"].fill = celda_fill
 
-        # ancho de columnas
-        for col, w in {"A":2,"B":58,"C":2,"D":58}.items():
-            an.column_dimensions[col].width = w
-
-        # Encabezados de las dos columnas
-        an["B2"].value = "Anotaciones Generales."; an["B2"].alignment = center; an["B2"].font = th_font; an["B2"].fill = celda_fill
-        an["D2"].value = "Acuerdos."; an["D2"].alignment = center; an["D2"].font = th_font; an["D2"].fill = celda_fill
-
-        # Marcos de texto (grandes, con bordes)
-        for r in range(3, 23):
-            for c in (2, 4):
-                cell = an.cell(row=r, column=c)
+        # Cajas con líneas (B..J y L..S filas notes_top+1 .. notes_top+20)
+        for r in range(notes_top+1, notes_top+21):
+            for c in range(2, 11):  # B..J
+                cell = ws.cell(row=r, column=c)
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+                cell.border = border_all
+            for c in range(12, 20): # L..S
+                cell = ws.cell(row=r, column=c)
                 cell.alignment = Alignment(wrap_text=True, vertical="top")
                 cell.border = border_all
 
-        # Colocar textos (multi-línea) en la parte superior
+        # Textos
         if anotaciones_txt.strip():
-            an["B3"].value = anotaciones_txt.strip()
+            ws[f"B{notes_top+1}"].value = anotaciones_txt.strip()
         if acuerdos_txt.strip():
-            an["D3"].value = acuerdos_txt.strip()
+            ws[f"L{notes_top+1}"].value = acuerdos_txt.strip()
 
-        # Pie: se finaliza / firma / cargo / sello  (FIX sin "or Border()")
-        row_pie = 24
-        an[f"B{row_pie}"].value = f"Se Finaliza la Reunión a      {hora_fin.strftime('%H:%M')}"
-        an[f"B{row_pie}"].alignment = left
+        # Pie: Se Finaliza / Firma / Cargo / Sello
+        row_pie = notes_top + 22
+        ws.merge_cells(start_row=row_pie, start_column=2, end_row=row_pie, end_column=10)   # B..J
+        ws[f"B{row_pie}"].value = f"Se Finaliza la Reunión a      {hora_fin.strftime('%H:%M')}"
+        ws[f"B{row_pie}"].alignment = left
 
-        # Línea de firma y etiqueta
         row_firma = row_pie + 3
-        an.merge_cells(f"B{row_firma}:D{row_firma}")
-        an[f"B{row_firma}"].border = Border(bottom=thin)         # línea de firma
-        an[f"B{row_firma+1}"].value = "Nombre Completo y Firma"
-        an[f"B{row_firma+1}"].alignment = center
+        ws.merge_cells(start_row=row_firma, start_column=2, end_row=row_firma, end_column=10)  # línea
+        from openpyxl.styles import Border, Side
+        thin = Side(style="thin", color="000000")
+        ws[f"B{row_firma}"].border = Border(bottom=thin)
+        ws[f"B{row_firma+1}"].value = "Nombre Completo y Firma"
+        ws[f"B{row_firma+1}"].alignment = center
 
-        # Cargo
-        an.merge_cells(f"B{row_firma+3}:D{row_firma+3}")
-        an[f"B{row_firma+3}"].value = "Cargo:"
-        an[f"B{row_firma+3}"].alignment = left
+        ws.merge_cells(start_row=row_firma+3, start_column=2, end_row=row_firma+3, end_column=10)
+        ws[f"B{row_firma+3}"].value = "Cargo:"
+        ws[f"B{row_firma+3}"].alignment = left
 
-        # Sello policial a la derecha
-        an[f"D{row_firma+5}"].value = "Sello Policial"
-        an[f"D{row_firma+5}"].alignment = Alignment(horizontal="right")
-
-        # Bordes del bloque inferior
-        for r in range(row_pie, row_firma + 6):
-            for c in (2, 4):
-                an.cell(row=r, column=c).border = border_all
+        ws.merge_cells(start_row=row_firma+5, start_column=12, end_row=row_firma+5, end_column=19)
+        ws[f"L{row_firma+5}"].value = "Sello Policial"
+        ws[f"L{row_firma+5}"].alignment = Alignment(horizontal="right")
 
         bio = BytesIO(); wb.save(bio); return bio.getvalue()
 
     df_for_excel = fetch_all_df(include_id=False)
     datos = df_for_excel.drop(columns=["Nº"]) if not df_for_excel.empty else df_for_excel
     if st.button("📥 Generar y descargar Excel oficial", use_container_width=True, type="primary"):
-        xls_bytes = build_excel_oficial(
+        xls_bytes = build_excel_oficial_single(
             fecha_evento, lugar, hora_inicio, hora_fin, estrategia, delegacion, datos,
             anotaciones, acuerdos
         )
         if xls_bytes:
             st.download_button(
-                "⬇️ Descargar Excel (estructura replicada)",
+                "⬇️ Descargar Excel (una sola hoja)",
                 data=xls_bytes,
                 file_name=f"Lista_Asistencia_Oficial_{date.today():%Y%m%d}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
-
-
-
-
-
-
 
 
