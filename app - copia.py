@@ -235,7 +235,7 @@ if st.session_state.is_admin:
             else:
                 st.warning("Marca 'Confirmar vaciado total' para continuar.")
 
-    # ===== Excel en UNA HOJA con líneas en Anotaciones/Acuerdos =====
+    # ===== Excel en UNA HOJA con MARCO en Anotaciones/Acuerdos =====
     st.markdown("### ⬇️ Excel oficial (una sola hoja)")
     st.caption("Coloca 'logo_izq.png' y/o 'logo_der.png' junto al .py para insertarlos.")
 
@@ -255,7 +255,7 @@ if st.session_state.is_admin:
 
         # Estilos / colores
         azul_banda = "1F3B73"
-        gris_head  = "D9D9D9"   # cabezales gris claro
+        gris_head  = "D9D9D9"
         celda_fill = PatternFill("solid", fgColor=gris_head)
         banda_fill = PatternFill("solid", fgColor=azul_banda)
         th_font    = Font(bold=True)
@@ -272,7 +272,7 @@ if st.session_state.is_admin:
         wb = Workbook()
         ws = wb.active; ws.title = "Lista"
 
-        # Config de página para impresión (A4 vertical, 1 página de ancho)
+        # Config de página A4 vertical
         ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
         ws.page_setup.paperSize = ws.PAPERSIZE_A4
         ws.page_setup.fitToWidth = 1
@@ -386,8 +386,8 @@ if st.session_state.is_admin:
         last_data_row = start_row + len(rows_df) - 1 if len(rows_df) > 0 else 10
         notes_top = max(24, last_data_row + 2)
 
-        # ---- Anotaciones y Acuerdos con LÍNEAS ----
-        # Cabeceras
+        # ---- Anotaciones y Acuerdos con MARCO EXTERIOR (sin cuadriculas) ----
+        # Encabezados
         ws.merge_cells(start_row=notes_top, start_column=2, end_row=notes_top, end_column=10)  # B..J
         ws.merge_cells(start_row=notes_top, start_column=12, end_row=notes_top, end_column=19) # L..S
         ws[f"B{notes_top}"].value = "Anotaciones Generales."; ws[f"B{notes_top}"].alignment = center
@@ -395,44 +395,44 @@ if st.session_state.is_admin:
         ws[f"B{notes_top}"].font = th_font; ws[f"L{notes_top}"].font = th_font
         ws[f"B{notes_top}"].fill = celda_fill; ws[f"L{notes_top}"].fill = celda_fill
 
-        # Líneas horizontales (15 renglones)
-        line_rows = 15
-        for r in range(notes_top+1, notes_top+1+line_rows):
-            ws.row_dimensions[r].height = 16
-            # Marco izquierdo (B..J)
-            for c in range(2, 11):
-                cell = ws.cell(row=r, column=c)
-                # bordes: líneas horizontales + marco lateral
-                left_b  = thin if c == 2 else None
-                right_b = thin if c == 10 else None
-                cell.border = Border(
-                    left=left_b or Side(style=None),
-                    right=right_b or Side(style=None),
-                    top=Side(style=None),
-                    bottom=thin
-                )
-                cell.alignment = Alignment(vertical="top")
-            # Marco derecho (L..S)
-            for c in range(12, 20):
-                cell = ws.cell(row=r, column=c)
-                left_b  = thin if c == 12 else None
-                right_b = thin if c == 19 else None
-                cell.border = Border(
-                    left=left_b or Side(style=None),
-                    right=right_b or Side(style=None),
-                    top=Side(style=None),
-                    bottom=thin
-                )
-                cell.alignment = Alignment(vertical="top")
+        # Utilidad para dibujar solo el contorno de un rango
+        def _outline_box(r1, c1, r2, c2):
+            # top & bottom
+            for c in range(c1, c2+1):
+                top_cell = ws.cell(row=r1, column=c)
+                top_cell.border = Border(top=thin, left=top_cell.border.left,
+                                         right=top_cell.border.right, bottom=top_cell.border.bottom)
+                bottom_cell = ws.cell(row=r2, column=c)
+                bottom_cell.border = Border(bottom=thin, left=bottom_cell.border.left,
+                                            right=bottom_cell.border.right, top=bottom_cell.border.top)
+            # left & right
+            for r in range(r1, r2+1):
+                left_cell = ws.cell(row=r, column=c1)
+                left_cell.border = Border(left=thin, top=left_cell.border.top,
+                                          right=left_cell.border.right, bottom=left_cell.border.bottom)
+                right_cell = ws.cell(row=r, column=c2)
+                right_cell.border = Border(right=thin, top=right_cell.border.top,
+                                           left=right_cell.border.left, bottom=right_cell.border.bottom)
 
-        # Texto (se pega en la parte superior; las líneas quedan debajo)
+        content_top    = notes_top + 1
+        content_bottom = notes_top + 20  # alto de los cuadros; ajusta si quieres
+        # Caja izquierda B..J
+        ws.merge_cells(start_row=content_top, start_column=2, end_row=content_bottom, end_column=10)
+        ws[f"B{content_top}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
+        _outline_box(content_top, 2, content_bottom, 10)
+        # Caja derecha L..S
+        ws.merge_cells(start_row=content_top, start_column=12, end_row=content_bottom, end_column=19)
+        ws[f"L{content_top}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
+        _outline_box(content_top, 12, content_bottom, 19)
+
+        # Textos dentro de cada caja
         if anotaciones_txt.strip():
-            ws[f"B{notes_top+1}"].value = anotaciones_txt.strip()
+            ws[f"B{content_top}"].value = anotaciones_txt.strip()
         if acuerdos_txt.strip():
-            ws[f"L{notes_top+1}"].value = acuerdos_txt.strip()
+            ws[f"L{content_top}"].value = acuerdos_txt.strip()
 
         # Pie: Se Finaliza / Firma / Cargo / Sello
-        row_pie = notes_top + line_rows + 2
+        row_pie = content_bottom + 2
         ws.merge_cells(start_row=row_pie, start_column=2, end_row=row_pie, end_column=10)
         ws[f"B{row_pie}"].value = f"Se Finaliza la Reunión a:   {hora_fin.strftime('%H:%M')}"
         ws[f"B{row_pie}"].alignment = left
@@ -440,7 +440,7 @@ if st.session_state.is_admin:
         row_firma = row_pie + 3
         ws.merge_cells(start_row=row_firma, start_column=2, end_row=row_firma, end_column=10)
         thin_line = Side(style="thin", color="000000")
-        ws[f"B{row_firma}"].border = Border(bottom=thin_line)
+        ws[f"B{row_firma}"].border = Border(bottom=thin_line)  # línea firma
         ws[f"B{row_firma+1}"].value = "Nombre Completo y Firma"
         ws[f"B{row_firma+1}"].alignment = center
 
@@ -469,5 +469,6 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+
 
 
