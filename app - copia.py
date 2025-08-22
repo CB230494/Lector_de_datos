@@ -267,6 +267,19 @@ if st.session_state.is_admin:
         thin       = Side(style="thin", color="000000")
         border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
 
+        # Helper: borde exterior de un rectángulo (outline)
+        def outline_box(r1, c1, r2, c2):
+            for c in range(c1, c2+1):
+                t = ws.cell(row=r1, column=c)
+                t.border = Border(top=thin, left=t.border.left, right=t.border.right, bottom=t.border.bottom)
+                b = ws.cell(row=r2, column=c)
+                b.border = Border(bottom=thin, left=b.border.left, right=b.border.right, top=b.border.top)
+            for r in range(r1, r2+1):
+                l = ws.cell(row=r, column=c1)
+                l.border = Border(left=thin, top=l.border.top, right=l.border.right, bottom=l.border.bottom)
+                rgt = ws.cell(row=r, column=c2)
+                rgt.border = Border(right=thin, top=rgt.border.top, left=rgt.border.left, bottom=rgt.border.bottom)
+
         # Mes en español
         MESES_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto",
                     "septiembre","octubre","noviembre","diciembre"]
@@ -323,8 +336,11 @@ if st.session_state.is_admin:
         # Banda azul DEBAJO de logos/títulos
         ws.merge_cells("B6:S6"); ws["B6"].fill = banda_fill
 
+        # 👉 Marco negro alrededor de TODO el bloque superior (B3:S6)
+        outline_box(3, 2, 6, 19)
+
         # ======= ENCABEZADO con CUADRICULAS (comienza en fila 7) =======
-        def _box_all(r1, c1, r2, c2):
+        def box_all(r1, c1, r2, c2):
             for r in range(r1, r2+1):
                 for c in range(c1, c2+1):
                     ws.cell(row=r, column=c).border = border_all
@@ -338,39 +354,27 @@ if st.session_state.is_admin:
         ws["E7"].value = f"Lugar:  {lugar}" if lugar else "Lugar: "; ws["E7"].font = title_font; ws["E7"].alignment = left
         ws["J7"].value = f"Hora Inicio: {hora_ini.strftime('%H:%M')}"; ws["J7"].alignment = center
         ws["P7"].value = f"Hora Finalización: {hora_fin.strftime('%H:%M')}"; ws["P7"].alignment = center
-        _box_all(7, 2, 7, 4); _box_all(7, 5, 7, 9); _box_all(7, 10, 7, 15); _box_all(7, 16, 7, 19)
+        box_all(7, 2, 7, 4); box_all(7, 5, 7, 9); box_all(7, 10, 7, 15); box_all(7, 16, 7, 19)
 
-        # Fila 8: Estrategia (B8:C8 etiqueta, D8:I8 valor)
+        # Fila 8: Estrategia
         ws.merge_cells(start_row=8, start_column=2, end_row=8, end_column=3)
         ws.merge_cells(start_row=8, start_column=4, end_row=8, end_column=9)
         ws["B8"].value = "Estrategia o Programa:"; ws["B8"].alignment = left
         ws["D8"].value = estrategia; ws["D8"].alignment = left
-        _box_all(8, 2, 8, 3); _box_all(8, 4, 8, 9)
+        box_all(8, 2, 8, 3); box_all(8, 4, 8, 9)
 
-        # ACTIVIDAD: J8:S9 (dos filas) – solo contorno
-        def _outline_box(r1, c1, r2, c2):
-            for c in range(c1, c2+1):
-                t = ws.cell(row=r1, column=c)
-                t.border = Border(top=thin, left=t.border.left, right=t.border.right, bottom=t.border.bottom)
-                b = ws.cell(row=r2, column=c)
-                b.border = Border(bottom=thin, left=b.border.left, right=b.border.right, top=b.border.top)
-            for r in range(r1, r2+1):
-                l = ws.cell(row=r, column=c1)
-                l.border = Border(left=thin, top=l.border.top, right=l.border.right, bottom=l.border.bottom)
-                rgt = ws.cell(row=r, column=c2)
-                rgt.border = Border(right=thin, top=rgt.border.top, left=rgt.border.left, bottom=rgt.border.bottom)
-
+        # ACTIVIDAD: J8:S9 – solo contorno
         ws.merge_cells(start_row=8, start_column=10, end_row=9, end_column=19)
         ws["J8"].value = "ACTIVIDAD: Reunión Virtual de Seguimiento de líneas de acción, acciones estratégicas, indicadores y metas."
         ws["J8"].alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
-        _outline_box(8, 10, 9, 19)
+        outline_box(8, 10, 9, 19)
 
-        # Fila 9: Delegación (B9:C9 etiqueta, D9:I9 valor)
+        # Fila 9: Delegación
         ws.merge_cells(start_row=9, start_column=2, end_row=9, end_column=3)
         ws.merge_cells(start_row=9, start_column=4, end_row=9, end_column=9)
         ws["B9"].value = "Dirección / Delegación Policial:"; ws["B9"].alignment = left
         ws["D9"].value = delegacion; ws["D9"].alignment = Alignment(horizontal="center")
-        _box_all(9, 2, 9, 3); _box_all(9, 4, 9, 9)
+        box_all(9, 2, 9, 3); box_all(9, 4, 9, 9)
 
         # ======= Encabezados de la tabla (filas 10 y 11) =======
         ws["B10"].value = ""  # ó "Nº"
@@ -454,35 +458,19 @@ if st.session_state.is_admin:
         ws[f"B{notes_top}"].font = th_font; ws[f"L{notes_top}"].font = th_font
         ws[f"B{notes_top}"].fill = celda_fill; ws[f"L{notes_top}"].fill = celda_fill
 
-        def _outline_box(r1, c1, r2, c2):
-            for c in range(c1, c2+1):
-                t = ws.cell(row=r1, column=c)
-                t.border = Border(top=thin, left=t.border.left, right=t.border.right, bottom=t.border.bottom)
-                b = ws.cell(row=r2, column=c)
-                b.border = Border(bottom=thin, left=b.border.left, right=b.border.right, top=b.border.top)
-            for r in range(r1, r2+1):
-                l = ws.cell(row=r, column=c1)
-                l.border = Border(left=thin, top=l.border.top, right=l.border.right, bottom=l.border.bottom)
-                rgt = ws.cell(row=r, column=c2)
-                rgt.border = Border(right=thin, top=rgt.border.top, left=rgt.border.left, bottom=rgt.border.bottom)
+        outline_box(notes_top+1, 2, notes_top+20, 10)  # cuadro izq
+        outline_box(notes_top+1, 12, notes_top+20, 19) # cuadro der
 
-        content_top    = notes_top + 1
-        content_bottom = notes_top + 20
-        ws.merge_cells(start_row=content_top, start_column=2, end_row=content_bottom, end_column=10)
-        ws[f"B{content_top}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
-        _outline_box(content_top, 2, content_bottom, 10)
+        ws.merge_cells(start_row=notes_top+1, start_column=2, end_row=notes_top+20, end_column=10)
+        ws[f"B{notes_top+1}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
+        if anotaciones_txt.strip(): ws[f"B{notes_top+1}"].value = anotaciones_txt.strip()
 
-        ws.merge_cells(start_row=content_top, start_column=12, end_row=content_bottom, end_column=19)
-        ws[f"L{content_top}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
-        _outline_box(content_top, 12, content_bottom, 19)
-
-        if anotaciones_txt.strip():
-            ws[f"B{content_top}"].value = anotaciones_txt.strip()
-        if acuerdos_txt.strip():
-            ws[f"L{content_top}"].value = acuerdos_txt.strip()
+        ws.merge_cells(start_row=notes_top+1, start_column=12, end_row=notes_top+20, end_column=19)
+        ws[f"L{notes_top+1}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
+        if acuerdos_txt.strip(): ws[f"L{notes_top+1}"].value = acuerdos_txt.strip()
 
         # ---- Pie limpio: Se Finaliza / Firma (D..J) / Cargo / Sello ----
-        row_pie = content_bottom + 2
+        row_pie = notes_top + 22
         for r in range(row_pie, row_pie + 8):
             for c in range(2, 20):
                 ws.cell(row=r, column=c).border = Border()  # sin bordes
@@ -504,12 +492,12 @@ if st.session_state.is_admin:
         ws[f"{'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[sig_c1-1]}{row_firma+1}"].value = "Nombre Completo y Firma"
         ws[f"{'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[sig_c1-1]}{row_firma+1}"].alignment = Alignment(horizontal="center", wrap_text=False)
 
-        # "Cargo:" (a la izquierda, sin línea)
+        # "Cargo:" (izquierda)
         ws.merge_cells(start_row=row_firma+3, start_column=2, end_row=row_firma+3, end_column=10)
         ws[f"B{row_firma+3}"].value = "Cargo:"
         ws[f"B{row_firma+3}"].alignment = left
 
-        # "Sello Policial" a la derecha
+        # "Sello Policial" (derecha)
         ws.merge_cells(start_row=row_firma+5, start_column=12, end_row=row_firma+5, end_column=19)
         ws[f"L{row_firma+5}"].value = "Sello Policial"
         ws[f"L{row_firma+5}"].alignment = Alignment(horizontal="right")
@@ -539,6 +527,5 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
-
 
 
