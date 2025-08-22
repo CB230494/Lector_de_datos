@@ -319,7 +319,7 @@ if st.session_state.is_admin:
         ws.merge_cells("B4:S4"); ws["B4"].value = "Lista de Asistencia & Minuta"; ws["B4"].alignment=center; ws["B4"].font=h1_font
         ws.merge_cells("B5:S5"); ws["B5"].value = "Consecutivo:"; ws["B5"].alignment=center; ws["B5"].font=title_font
 
-        # Banda azul DEBAJO de logos/títulos (como en tu referencia)
+        # Banda azul DEBAJO de logos/títulos
         ws.merge_cells("B6:S6"); ws["B6"].fill = banda_fill
 
         # ======= ENCABEZADO con CUADRICULAS (comienza en fila 7) =======
@@ -372,7 +372,13 @@ if st.session_state.is_admin:
         _box_all(9, 2, 9, 3); _box_all(9, 4, 9, 9)
 
         # ======= Encabezados de la tabla (filas 10 y 11) =======
-        ws.merge_cells("B10:E11"); ws["B10"].value = "Nombre"
+        # Columna de numeración en B (si quieres ver "Nº", pon ese texto abajo)
+        ws["B10"].value = ""
+        ws["B10"].alignment = center
+        # Nombre ocupa C..E
+        ws.merge_cells("C10:E11"); ws["C10"].value = "Nombre"
+
+        # Resto de encabezados
         ws["F10"].value = "Cédula de Identidad"
         ws["G10"].value = "Institución"
         ws["H10"].value = "Cargo"
@@ -382,7 +388,8 @@ if st.session_state.is_admin:
         ws.merge_cells("P10:R10"); ws["P10"].value = "Rango de Edad"
         ws["S10"].value = "FIRMA"
 
-        for rng in ["B10:E11","J10:L10","M10:O10","P10:R10"]:
+        # Estilos de encabezados
+        for rng in ["C10:E11","J10:L10","M10:O10","P10:R10"]:
             c = ws[rng.split(":")[0]]; c.font = th_font; c.alignment = center; c.fill = celda_fill
         for cell in ["F10","G10","H10","I10","S10"]:
             ws[cell].font = th_font; ws[cell].alignment = center; ws[cell].fill = celda_fill
@@ -395,7 +402,7 @@ if st.session_state.is_admin:
 
         # Bordes cabecera tabla
         for r in range(10, 12):
-            for c in range(2, 20):
+            for c in range(2, 20):  # B..S
                 ws.cell(row=r, column=c).border = border_all
 
         ws.freeze_panes = "C12"
@@ -404,33 +411,45 @@ if st.session_state.is_admin:
         start_row = 12
         for i, (_, row) in enumerate(rows_df.iterrows()):
             r = start_row + i
+            # numeración en B
             ws[f"B{r}"].value = i + 1; ws[f"B{r}"].alignment = center
+            # nombre en C..E
             ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=5)
-            ws[f"C{r}"].value = str(row.get("Nombre","")); ws[f"C{r}"].alignment = Alignment(wrap_text=True, horizontal="left", vertical="top")
+            ws[f"C{r}"].value = str(row.get("Nombre",""))
+            ws[f"C{r}"].alignment = Alignment(wrap_text=True, horizontal="left", vertical="top")
+            # demás campos
             ws[f"F{r}"].value = str(row.get("Cédula de Identidad",""))
             ws[f"G{r}"].value = str(row.get("Institución",""))
             ws[f"H{r}"].value = str(row.get("Cargo",""))
             ws[f"I{r}"].value = str(row.get("Teléfono",""))
 
-            for col in ["J","K","L","M","N","O","P","Q","R"]: ws[f"{col}{r}"].value = ""
+            # limpia marcas
+            for col in ["J","K","L","M","N","O","P","Q","R"]:
+                ws[f"{col}{r}"].value = ""
 
+            # marcas de género
             g = (row.get("Género","") or "").strip()
             if g == "F": ws[f"J{r}"].value = "X"
             elif g == "M": ws[f"K{r}"].value = "X"
             elif g == "LGBTIQ+": ws[f"L{r}"].value = "X"
 
+            # sexo
             s = (row.get("Sexo","") or "").strip()
             if s == "H": ws[f"M{r}"].value = "X"
             elif s == "M": ws[f"N{r}"].value = "X"
             elif s == "I": ws[f"O{r}"].value = "X"
 
+            # rango edad
             e = (row.get("Rango de Edad","") or "").strip()
             if e.startswith("18"): ws[f"P{r}"].value = "X"
             elif e.startswith("36"): ws[f"Q{r}"].value = "X"
             elif e.startswith("65"): ws[f"R{r}"].value = "X"
 
             ws[f"S{r}"].value = "Virtual"
-            for c in range(2, 20): ws.cell(row=r, column=c).border = border_all
+
+            # bordes fila completa
+            for c in range(2, 20):
+                ws.cell(row=r, column=c).border = border_all
 
         last_data_row = start_row + len(rows_df) - 1 if len(rows_df) > 0 else 11
         notes_top = max(25, last_data_row + 2)
