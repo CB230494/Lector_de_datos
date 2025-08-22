@@ -262,6 +262,7 @@ if st.session_state.is_admin:
         title_font = Font(bold=True, size=12)
         h1_font    = Font(bold=True, size=14)
         center     = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        right      = Alignment(horizontal="right",  vertical="center")
         left       = Alignment(horizontal="left",   vertical="center", wrap_text=True)
         thin       = Side(style="thin", color="000000")
         border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
@@ -372,9 +373,10 @@ if st.session_state.is_admin:
         _box_all(9, 2, 9, 3); _box_all(9, 4, 9, 9)
 
         # ======= Encabezados de la tabla (filas 10 y 11) =======
-        # Columna de numeración en B (si quieres ver "Nº", pon ese texto abajo)
-        ws["B10"].value = ""
-        ws["B10"].alignment = center
+        # Columna de numeración en B (alineada a la derecha para que quede “pegada” al borde)
+        ws["B10"].value = ""  # ó "Nº"
+        ws["B10"].alignment = right
+
         # Nombre ocupa C..E
         ws.merge_cells("C10:E11"); ws["C10"].value = "Nombre"
 
@@ -411,12 +413,15 @@ if st.session_state.is_admin:
         start_row = 12
         for i, (_, row) in enumerate(rows_df.iterrows()):
             r = start_row + i
-            # numeración en B
-            ws[f"B{r}"].value = i + 1; ws[f"B{r}"].alignment = center
+            # numeración en B (alineación a la derecha para que “no se mueva” al ensanchar)
+            ws[f"B{r}"].value = i + 1
+            ws[f"B{r}"].alignment = right
+
             # nombre en C..E
             ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=5)
             ws[f"C{r}"].value = str(row.get("Nombre",""))
             ws[f"C{r}"].alignment = Alignment(wrap_text=True, horizontal="left", vertical="top")
+
             # demás campos
             ws[f"F{r}"].value = str(row.get("Cédula de Identidad",""))
             ws[f"G{r}"].value = str(row.get("Institución",""))
@@ -513,6 +518,10 @@ if st.session_state.is_admin:
         ws.merge_cells(start_row=row_firma+5, start_column=12, end_row=row_firma+5, end_column=19)
         ws[f"L{row_firma+5}"].value = "Sello Policial"
         ws[f"L{row_firma+5}"].alignment = Alignment(horizontal="right")
+
+        # (Opcional) proteger hoja para evitar cambios de anchura de columnas
+        # ws.protection.sheet = True
+        # ws.protection.formatColumns = False
 
         bio = BytesIO(); wb.save(bio); return bio.getvalue()
 
