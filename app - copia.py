@@ -248,6 +248,7 @@ if st.session_state.is_admin:
             from openpyxl import Workbook
             from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
             from openpyxl.drawing.image import Image as XLImage
+            from openpyxl.utils import get_column_letter
             from pathlib import Path as _Path
         except Exception:
             st.error("Falta 'openpyxl' en requirements.txt")
@@ -267,7 +268,7 @@ if st.session_state.is_admin:
         thin       = Side(style="thin", color="000000")
         border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-        # Helper: borde exterior de un rectángulo (outline)
+        # Helpers
         def outline_box(r1, c1, r2, c2):
             for c in range(c1, c2+1):
                 t = ws.cell(row=r1, column=c)
@@ -279,6 +280,11 @@ if st.session_state.is_admin:
                 l.border = Border(left=thin, top=l.border.top, right=l.border.right, bottom=l.border.bottom)
                 rgt = ws.cell(row=r, column=c2)
                 rgt.border = Border(right=thin, top=rgt.border.top, left=rgt.border.left, bottom=rgt.border.bottom)
+
+        def box_all(r1, c1, r2, c2):
+            for r in range(r1, r2+1):
+                for c in range(c1, c2+1):
+                    ws.cell(row=r, column=c).border = border_all
 
         # Mes en español
         MESES_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto",
@@ -311,20 +317,23 @@ if st.session_state.is_admin:
 
         # ------- Logos y títulos centrados (B3..S5) -------
         try:
+            # Logo izquierdo (lo movemos a C3 y bajamos a 60px para que quede dentro del marco)
             if _Path("logo_izq.png").exists():
                 img = XLImage("logo_izq.png")
-                target_h = 72
+                target_h = 60
                 ratio = target_h / img.height
                 img.height = target_h
                 img.width  = int(img.width * ratio)
-                ws.add_image(img, "B3")
+                ws.add_image(img, "C3")  # antes B3
+
+            # Logo derecho (lo movemos a P3 y bajamos a 60px para que quede dentro del marco)
             if _Path("logo_der.png").exists():
                 img2 = XLImage("logo_der.png")
-                target_h2 = 72
+                target_h2 = 60
                 ratio2 = target_h2 / img2.height
                 img2.height = target_h2
                 img2.width  = int(img2.width * ratio2)
-                ws.add_image(img2, "Q3")
+                ws.add_image(img2, "P3")  # antes Q3
         except Exception:
             pass
 
@@ -339,12 +348,7 @@ if st.session_state.is_admin:
         # 👉 Marco negro alrededor de TODO el bloque superior (B3:S6)
         outline_box(3, 2, 6, 19)
 
-        # ======= ENCABEZADO con CUADRICULAS (comienza en fila 7) =======
-        def box_all(r1, c1, r2, c2):
-            for r in range(r1, r2+1):
-                for c in range(c1, c2+1):
-                    ws.cell(row=r, column=c).border = border_all
-
+        # ======= ENCABEZADO con CUADRICULAS (fila 7) =======
         # Fila 7: Fecha / Lugar / Hora Inicio / Hora Finalización
         ws.merge_cells(start_row=7, start_column=2, end_row=7, end_column=4)   # B7:D7
         ws.merge_cells(start_row=7, start_column=5, end_row=7, end_column=9)   # E7:I7
@@ -489,8 +493,8 @@ if st.session_state.is_admin:
             ws.cell(row=row_firma, column=c).border = Border(bottom=thin_line)
 
         ws.merge_cells(start_row=row_firma+1, start_column=sig_c1, end_row=row_firma+1, end_column=sig_c2)
-        ws[f"{'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[sig_c1-1]}{row_firma+1}"].value = "Nombre Completo y Firma"
-        ws[f"{'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[sig_c1-1]}{row_firma+1}"].alignment = Alignment(horizontal="center", wrap_text=False)
+        ws[f"{get_column_letter(sig_c1)}{row_firma+1}"].value = "Nombre Completo y Firma"
+        ws[f"{get_column_letter(sig_c1)}{row_firma+1}"].alignment = Alignment(horizontal="center", wrap_text=False)
 
         # "Cargo:" (izquierda)
         ws.merge_cells(start_row=row_firma+3, start_column=2, end_row=row_firma+3, end_column=10)
@@ -502,7 +506,7 @@ if st.session_state.is_admin:
         ws[f"L{row_firma+5}"].value = "Sello Policial"
         ws[f"L{row_firma+5}"].alignment = Alignment(horizontal="right")
 
-        # ========= PROTECCIÓN: evita cambio de anchos de columnas/filas =========
+        # ========= PROTECCIÓN =========
         ws.protection.sheet = True
         ws.protection.formatColumns = False
         ws.protection.formatRows = False
@@ -527,5 +531,6 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+
 
 
