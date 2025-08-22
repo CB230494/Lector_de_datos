@@ -481,7 +481,7 @@ if st.session_state.is_admin:
         if acuerdos_txt.strip():
             ws[f"L{content_top}"].value = acuerdos_txt.strip()
 
-        # ---- Pie limpio: Se Finaliza / Firma / Cargo / Sello ----
+        # ---- Pie limpio: Se Finaliza / Firma (D..J) / Cargo / Sello ----
         row_pie = content_bottom + 2
         for r in range(row_pie, row_pie + 8):
             for c in range(2, 20):
@@ -492,17 +492,19 @@ if st.session_state.is_admin:
         ws[f"B{row_pie}"].value = f"Se Finaliza la Reunión a:   {hora_fin.strftime('%H:%M')}"
         ws[f"B{row_pie}"].alignment = left
 
-        # Línea de firma: borde inferior en TODAS las celdas B..J
+        # Línea de firma más corta (D..J) + etiqueta centrada (D..J)
         row_firma = row_pie + 3
         thin_line = Side(style="thin", color="000000")
-        ws.merge_cells(start_row=row_firma, start_column=2, end_row=row_firma, end_column=10)
-        for c in range(2, 11):  # B..J
+        sig_c1, sig_c2 = 4, 10  # D..J
+        ws.merge_cells(start_row=row_firma, start_column=sig_c1, end_row=row_firma, end_column=sig_c2)
+        for c in range(sig_c1, sig_c2 + 1):
             ws.cell(row=row_firma, column=c).border = Border(bottom=thin_line)
 
-        ws[f"B{row_firma+1}"].value = "Nombre Completo y Firma"
-        ws[f"B{row_firma+1}"].alignment = Alignment(horizontal="center")
+        ws.merge_cells(start_row=row_firma+1, start_column=sig_c1, end_row=row_firma+1, end_column=sig_c2)
+        ws[f"{'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[sig_c1-1]}{row_firma+1}"].value = "Nombre Completo y Firma"
+        ws[f"{'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[sig_c1-1]}{row_firma+1}"].alignment = Alignment(horizontal="center", wrap_text=False)
 
-        # "Cargo:"
+        # "Cargo:" (a la izquierda, sin línea)
         ws.merge_cells(start_row=row_firma+3, start_column=2, end_row=row_firma+3, end_column=10)
         ws[f"B{row_firma+3}"].value = "Cargo:"
         ws[f"B{row_firma+3}"].alignment = left
@@ -537,5 +539,6 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+
 
 
