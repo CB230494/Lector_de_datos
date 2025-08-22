@@ -309,31 +309,31 @@ if st.session_state.is_admin:
                   "P": 14, "Q": 14, "R": 14, "S": 16}
         for col, w in widths.items(): ws.column_dimensions[col].width = w
 
-        # Altura de filas (más aire arriba para logos más grandes)
-        ws.row_dimensions[3].height = 46  # ↑
+        # Altura de filas (con un margen arriba para que el borde vaya en fila 1)
+        ws.row_dimensions[1].height = 8  # ← margen superior
+        ws.row_dimensions[3].height = 46
         ws.row_dimensions[4].height = 22
         ws.row_dimensions[5].height = 18
         ws.row_dimensions[6].height = 14
 
         # ------- Logos y títulos centrados (B3..S5) -------
         try:
-            # Logo izquierdo: más hacia dentro (D3) y más grande (68 px) sin salirse del marco
+            # Logos dentro del marco y un poco más grandes
             if _Path("logo_izq.png").exists():
                 img = XLImage("logo_izq.png")
                 target_h = 68
                 ratio = target_h / img.height
                 img.height = target_h
                 img.width  = int(img.width * ratio)
-                ws.add_image(img, "D3")  # antes C3
+                ws.add_image(img, "D3")
 
-            # Logo derecho: más hacia dentro (O3) y más grande (68 px)
             if _Path("logo_der.png").exists():
                 img2 = XLImage("logo_der.png")
                 target_h2 = 68
                 ratio2 = target_h2 / img2.height
                 img2.height = target_h2
                 img2.width  = int(img2.width * ratio2)
-                ws.add_image(img2, "O3")  # antes P3
+                ws.add_image(img2, "O3")
         except Exception:
             pass
 
@@ -345,8 +345,8 @@ if st.session_state.is_admin:
         # Banda azul DEBAJO de logos/títulos
         ws.merge_cells("B6:S6"); ws["B6"].fill = PatternFill("solid", fgColor=azul_banda)
 
-        # Marco negro alrededor de TODO el bloque superior (B3:S6)
-        outline_box(3, 2, 6, 19)
+        # 👉 Marco negro alrededor de TODO el bloque superior (AHORA con borde superior en FILA 1)
+        outline_box(1, 2, 6, 19)
 
         # ======= ENCABEZADO con CUADRICULAS (fila 7) =======
         ws.merge_cells(start_row=7, start_column=2, end_row=7, end_column=4)   # B7:D7
@@ -525,7 +525,5 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
-
-
 
 
