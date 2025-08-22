@@ -165,17 +165,17 @@ if st.session_state.is_admin:
     col1, col2 = st.columns([1,1])
     with col1:
         fecha_evento = st.date_input("Fecha", value=date.today())
-        lugar = st.text_input("Lugar", value="")  # vacío
+        lugar = st.text_input("Lugar", value="")
         estrategia = st.text_input("Estrategia o Programa", value="Estrategia Sembremos Seguridad")
     with col2:
         hora_inicio = st.time_input("Hora Inicio", value=time(9,0))
         hora_fin = st.time_input("Hora Finalización", value=time(12,10))
-        delegacion = st.text_input("Dirección / Delegación Policial", value="")  # vacío
+        delegacion = st.text_input("Dirección / Delegación Policial", value="")
 
     st.markdown("### 📝 Anotaciones y Acuerdos (para el Excel)")
     a_col, b_col = st.columns(2)
-    anotaciones = a_col.text_area("Anotaciones Generales", height=260, placeholder="Escribe las anotaciones generales…")
-    acuerdos    = b_col.text_area("Acuerdos", height=260, placeholder="Escribe los acuerdos…")
+    anotaciones = a_col.text_area("Anotaciones Generales", height=220, placeholder="Escribe las anotaciones generales…")
+    acuerdos    = b_col.text_area("Acuerdos", height=220, placeholder="Escribe los acuerdos…")
 
     st.markdown("### 👥 Registros y edición")
     df_all = fetch_all_df(include_id=True)
@@ -268,7 +268,6 @@ if st.session_state.is_admin:
         thin       = Side(style="thin", color="000000")
         border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-        # Helpers
         def outline_box(r1, c1, r2, c2):
             for c in range(c1, c2+1):
                 t = ws.cell(row=r1, column=c)
@@ -293,9 +292,9 @@ if st.session_state.is_admin:
 
         wb = Workbook()
         ws = wb.active; ws.title = "Lista"
-        ws.sheet_view.showGridLines = False   # ocultar rejilla general
+        ws.sheet_view.showGridLines = False
 
-        # Config de página A4 vertical
+        # Página
         ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
         ws.page_setup.paperSize = ws.PAPERSIZE_A4
         ws.page_setup.fitToWidth = 1
@@ -309,19 +308,18 @@ if st.session_state.is_admin:
                   "P": 14, "Q": 14, "R": 14, "S": 16}
         for col, w in widths.items(): ws.column_dimensions[col].width = w
 
-        # Altura de filas (con un margen arriba para que el borde vaya en fila 1)
-        ws.row_dimensions[1].height = 8  # ← margen superior
-        ws.row_dimensions[3].height = 46
+        # Alturas (logos un poquito más grandes)
+        ws.row_dimensions[1].height = 8
+        ws.row_dimensions[3].height = 50  # ↑ más aire para logos
         ws.row_dimensions[4].height = 22
         ws.row_dimensions[5].height = 18
         ws.row_dimensions[6].height = 14
 
         # ------- Logos y títulos centrados (B3..S5) -------
         try:
-            # Logos dentro del marco y un poco más grandes
             if _Path("logo_izq.png").exists():
                 img = XLImage("logo_izq.png")
-                target_h = 68
+                target_h = 72  # ↑ un poco más grande
                 ratio = target_h / img.height
                 img.height = target_h
                 img.width  = int(img.width * ratio)
@@ -329,7 +327,7 @@ if st.session_state.is_admin:
 
             if _Path("logo_der.png").exists():
                 img2 = XLImage("logo_der.png")
-                target_h2 = 68
+                target_h2 = 72  # ↑ un poco más grande
                 ratio2 = target_h2 / img2.height
                 img2.height = target_h2
                 img2.width  = int(img2.width * ratio2)
@@ -337,18 +335,18 @@ if st.session_state.is_admin:
         except Exception:
             pass
 
-        # Títulos centrados a lo ancho (B..S)
+        # Títulos
         ws.merge_cells("B3:S3"); ws["B3"].value = "Modelo de Gestión Policial de Fuerza Pública"; ws["B3"].alignment=center; ws["B3"].font=h1_font
         ws.merge_cells("B4:S4"); ws["B4"].value = "Lista de Asistencia & Minuta"; ws["B4"].alignment=center; ws["B4"].font=h1_font
         ws.merge_cells("B5:S5"); ws["B5"].value = "Consecutivo:"; ws["B5"].alignment=center; ws["B5"].font=title_font
 
-        # Banda azul DEBAJO de logos/títulos
+        # Banda azul
         ws.merge_cells("B6:S6"); ws["B6"].fill = PatternFill("solid", fgColor=azul_banda)
 
-        # 👉 Marco negro alrededor de TODO el bloque superior (AHORA con borde superior en FILA 1)
+        # Marco del bloque superior (borde superior en FILA 1)
         outline_box(1, 2, 6, 19)
 
-        # ======= ENCABEZADO con CUADRICULAS (fila 7) =======
+        # ======= Encabezado con cuadrícula =======
         ws.merge_cells(start_row=7, start_column=2, end_row=7, end_column=4)   # B7:D7
         ws.merge_cells(start_row=7, start_column=5, end_row=7, end_column=9)   # E7:I7
         ws.merge_cells(start_row=7, start_column=10, end_row=7, end_column=15) # J7:O7
@@ -366,7 +364,7 @@ if st.session_state.is_admin:
         ws["D8"].value = estrategia; ws["D8"].alignment = left
         box_all(8, 2, 8, 3); box_all(8, 4, 8, 9)
 
-        # ACTIVIDAD: J8:S9 – solo contorno
+        # Actividad (solo contorno)
         ws.merge_cells(start_row=8, start_column=10, end_row=9, end_column=19)
         ws["J8"].value = "ACTIVIDAD: Reunión Virtual de Seguimiento de líneas de acción, acciones estratégicas, indicadores y metas."
         ws["J8"].alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
@@ -379,7 +377,7 @@ if st.session_state.is_admin:
         ws["D9"].value = delegacion; ws["D9"].alignment = Alignment(horizontal="center")
         box_all(9, 2, 9, 3); box_all(9, 4, 9, 9)
 
-        # ======= Encabezados de la tabla (filas 10 y 11) =======
+        # Encabezado de la tabla
         ws["B10"].value = ""
         ws["B10"].alignment = right
         ws.merge_cells("C10:E11"); ws["C10"].value = "Nombre"
@@ -408,7 +406,7 @@ if st.session_state.is_admin:
             for c in range(2, 20):
                 ws.cell(row=r, column=c).border = border_all
 
-        # Congelar solo filas del encabezado
+        # Congelar encabezado
         ws.freeze_panes = "A12"
 
         # Filas de asistencia
@@ -450,10 +448,12 @@ if st.session_state.is_admin:
             for c in range(2, 20):
                 ws.cell(row=r, column=c).border = border_all
 
+        # ===== Anotaciones / Acuerdos (más bajos) =====
         last_data_row = start_row + len(rows_df) - 1 if len(rows_df) > 0 else 11
         notes_top = max(25, last_data_row + 2)
+        notes_height = 14  # ← antes 20; ahora menos alto
 
-        # Anotaciones / Acuerdos (marco exterior, sin cuadriculas internas)
+        # Títulos de los cuadros
         ws.merge_cells(start_row=notes_top, start_column=2, end_row=notes_top, end_column=10)  # B..J
         ws.merge_cells(start_row=notes_top, start_column=12, end_row=notes_top, end_column=19) # L..S
         ws[f"B{notes_top}"].value = "Anotaciones Generales."; ws[f"B{notes_top}"].alignment = center
@@ -461,19 +461,21 @@ if st.session_state.is_admin:
         ws[f"B{notes_top}"].font = th_font; ws[f"L{notes_top}"].font = th_font
         ws[f"B{notes_top}"].fill = celda_fill; ws[f"L{notes_top}"].fill = celda_fill
 
-        outline_box(notes_top+1, 2, notes_top+20, 10)  # cuadro izq
-        outline_box(notes_top+1, 12, notes_top+20, 19) # cuadro der
+        # Marcos exteriores de los cuadros (sin cuadriculas internas)
+        outline_box(notes_top+1, 2, notes_top+notes_height, 10)   # cuadro izq
+        outline_box(notes_top+1, 12, notes_top+notes_height, 19)  # cuadro der
 
-        ws.merge_cells(start_row=notes_top+1, start_column=2, end_row=notes_top+20, end_column=10)
+        # Rellenos de texto
+        ws.merge_cells(start_row=notes_top+1, start_column=2, end_row=notes_top+notes_height, end_column=10)
         ws[f"B{notes_top+1}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
         if anotaciones_txt.strip(): ws[f"B{notes_top+1}"].value = anotaciones_txt.strip()
 
-        ws.merge_cells(start_row=notes_top+1, start_column=12, end_row=notes_top+20, end_column=19)
+        ws.merge_cells(start_row=notes_top+1, start_column=12, end_row=notes_top+notes_height, end_column=19)
         ws[f"L{notes_top+1}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
         if acuerdos_txt.strip(): ws[f"L{notes_top+1}"].value = acuerdos_txt.strip()
 
-        # Pie limpio: Se Finaliza / Firma (D..J) / Cargo / Sello
-        row_pie = notes_top + 22
+        # ===== Pie (ajustado a la nueva altura de los cuadros) =====
+        row_pie = notes_top + notes_height + 2
         for r in range(row_pie, row_pie + 8):
             for c in range(2, 20):
                 ws.cell(row=r, column=c).border = Border()  # sin bordes
@@ -482,6 +484,7 @@ if st.session_state.is_admin:
         ws[f"B{row_pie}"].value = f"Se Finaliza la Reunión a:   {hora_fin.strftime('%H:%M')}"
         ws[f"B{row_pie}"].alignment = left
 
+        from openpyxl.utils import get_column_letter
         row_firma = row_pie + 3
         thin_line = Side(style="thin", color="000000")
         sig_c1, sig_c2 = 4, 10  # D..J
@@ -525,5 +528,6 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+
 
 
