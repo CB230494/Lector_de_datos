@@ -237,7 +237,7 @@ if st.session_state.is_admin:
 
     # ===== Excel en UNA HOJA =====
     st.markdown("### ⬇️ Excel oficial (una sola hoja)")
-    st.caption("Coloca 'logo_izq.png' y/o 'logo_der.png' junto al .py para insertarlos.")
+
 
     def build_excel_oficial_single(
         fecha: date, lugar: str, hora_ini: time, hora_fin: time,
@@ -513,6 +513,7 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+
 
 
 
