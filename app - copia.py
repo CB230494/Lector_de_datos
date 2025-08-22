@@ -36,7 +36,7 @@ def insert_row(row):
         conn.execute("""INSERT INTO asistencia
             (nombre, cedula, institucion, cargo, telefono, genero, sexo, edad)
             VALUES (?,?,?,?,?,?,?,?)""",
-            (row["Nombre"], row["Cédula de Identidad"], row["Institución"],
+            (row["Nombre"], row["Cédula de Identidad"], row["Delegación"],
              row["Cargo"], row["Teléfono"], row["Género"], row["Sexo"], row["Rango de Edad"])
         )
 
@@ -46,7 +46,7 @@ def fetch_all_df(include_id=True):
             SELECT id,
                    nombre  AS 'Nombre',
                    cedula  AS 'Cédula de Identidad',
-                   institucion AS 'Institución',
+                   institucion AS 'Delegación',
                    cargo   AS 'Cargo',
                    telefono AS 'Teléfono',
                    genero  AS 'Género',
@@ -60,7 +60,7 @@ def fetch_all_df(include_id=True):
         if not include_id:
             df = df.drop(columns=["id"])
     else:
-        cols = ["Nº","Nombre","Cédula de Identidad","Institución","Cargo","Teléfono","Género","Sexo","Rango de Edad"]
+        cols = ["Nº","Nombre","Cédula de Identidad","Delegación","Cargo","Teléfono","Género","Sexo","Rango de Edad"]
         if include_id: cols.insert(1, "id")
         df = pd.DataFrame(columns=cols)
     return df
@@ -71,7 +71,7 @@ def update_row_by_id(row_id:int, row:dict):
             UPDATE asistencia
                SET nombre=?, cedula=?, institucion=?, cargo=?, telefono=?, genero=?, sexo=?, edad=?
              WHERE id=?""",
-            (row["Nombre"], row["Cédula de Identidad"], row["Institución"],
+            (row["Nombre"], row["Cédula de Identidad"], row["Delegación"],
              row["Cargo"], row["Teléfono"], row["Género"], row["Sexo"], row["Rango de Edad"], row_id)
         )
 
@@ -115,7 +115,7 @@ with st.form("form_asistencia_publico", clear_on_submit=True):
     c1, c2, c3 = st.columns([1.2, 1, 1])
     nombre      = c1.text_input("Nombre")
     cedula      = c2.text_input("Cédula de Identidad")
-    institucion = c3.text_input("Institución")
+    institucion = c3.text_input("Delegación")  # ← antes: Institución
 
     c4, c5 = st.columns([1, 1])
     cargo    = c4.text_input("Cargo")
@@ -135,7 +135,7 @@ with st.form("form_asistencia_publico", clear_on_submit=True):
             fila = {
                 "Nombre": nombre.strip(),
                 "Cédula de Identidad": cedula.strip(),
-                "Institución": institucion.strip(),
+                "Delegación": institucion.strip(),
                 "Cargo": cargo.strip(),
                 "Teléfono": telefono.strip(),
                 "Género": genero,
@@ -149,7 +149,7 @@ st.markdown("### 📥 Registros recibidos")
 df_pub = fetch_all_df(include_id=False)
 if not df_pub.empty:
     st.dataframe(
-        df_pub[["Nº","Nombre","Cédula de Identidad","Institución","Cargo","Teléfono","Género","Sexo","Rango de Edad"]],
+        df_pub[["Nº","Nombre","Cédula de Identidad","Delegación","Cargo","Teléfono","Género","Sexo","Rango de Edad"]],
         use_container_width=True, hide_index=True
     )
 else:
@@ -187,7 +187,7 @@ if st.session_state.is_admin:
         editable["Seleccionar"] = False
 
         edited = st.data_editor(
-            editable[["Nº","Nombre","Cédula de Identidad","Institución","Cargo","Teléfono",
+            editable[["Nº","Nombre","Cédula de Identidad","Delegación","Cargo","Teléfono",
                       "Género","Sexo","Rango de Edad","Seleccionar"]],
             hide_index=True,
             use_container_width=True,
@@ -214,7 +214,7 @@ if st.session_state.is_admin:
                 if idx >= len(df_all): continue
                 row_orig = df_all.loc[idx]
                 row_new = edited.loc[idx]
-                fields = ["Nombre","Cédula de Identidad","Institución","Cargo","Teléfono","Género","Sexo","Rango de Edad"]
+                fields = ["Nombre","Cédula de Identidad","Delegación","Cargo","Teléfono","Género","Sexo","Rango de Edad"]
                 if any(str(row_orig[f]) != str(row_new[f]) for f in fields):
                     update_row_by_id(int(row_orig["id"]), {f: row_new[f] for f in fields})
                     changes += 1
@@ -237,11 +237,11 @@ if st.session_state.is_admin:
 
     # ===== Excel en UNA HOJA =====
     st.markdown("### ⬇️ Excel oficial (una sola hoja)")
-    
+    st.caption("Coloca 'logo_izq.png' y/o 'logo_der.png' junto al .py para insertarlos.")
 
     def build_excel_oficial_single(
         fecha: date, lugar: str, hora_ini: time, hora_fin: time,
-        estrategia: str, delegacion: str, rows_df: pd.DataFrame,
+        estrategia: str, delegacion_hdr: str, rows_df: pd.DataFrame,
         anotaciones_txt: str, acuerdos_txt: str
     ) -> bytes:
         try:
@@ -254,11 +254,9 @@ if st.session_state.is_admin:
             st.error("Falta 'openpyxl' en requirements.txt")
             return b""
 
-        # Estilos / colores
         azul_banda = "1F3B73"
         gris_head  = "D9D9D9"
         celda_fill = PatternFill("solid", fgColor=gris_head)
-        banda_fill = PatternFill("solid", fgColor=azul_banda)
         th_font    = Font(bold=True)
         title_font = Font(bold=True, size=12)
         h1_font    = Font(bold=True, size=14)
@@ -285,7 +283,6 @@ if st.session_state.is_admin:
                 for c in range(c1, c2+1):
                     ws.cell(row=r, column=c).border = border_all
 
-        # Mes en español
         MESES_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto",
                     "septiembre","octubre","noviembre","diciembre"]
         mes_es = MESES_ES[fecha.month-1]
@@ -294,7 +291,6 @@ if st.session_state.is_admin:
         ws = wb.active; ws.title = "Lista"
         ws.sheet_view.showGridLines = False
 
-        # Página
         ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
         ws.page_setup.paperSize = ws.PAPERSIZE_A4
         ws.page_setup.fitToWidth = 1
@@ -302,24 +298,22 @@ if st.session_state.is_admin:
         ws.page_margins.left = ws.page_margins.right = 0.3
         ws.page_margins.top = ws.page_margins.bottom = 0.4
 
-        # Columnas
         widths = {"A": 2, "B": 6, "C": 22, "D": 22, "E": 22, "F": 18, "G": 22,
                   "H": 20, "I": 16, "J": 6, "K": 6, "L": 10, "M": 6, "N": 6, "O": 6,
                   "P": 14, "Q": 14, "R": 14, "S": 16}
         for col, w in widths.items(): ws.column_dimensions[col].width = w
 
-        # Alturas (logos un poquito más grandes)
         ws.row_dimensions[1].height = 8
-        ws.row_dimensions[3].height = 50  # ↑ más aire para logos
+        ws.row_dimensions[3].height = 50
         ws.row_dimensions[4].height = 22
         ws.row_dimensions[5].height = 18
         ws.row_dimensions[6].height = 14
 
-        # ------- Logos y títulos centrados (B3..S5) -------
+        # Logos (ligeramente grandes, dentro del marco)
         try:
             if _Path("logo_izq.png").exists():
                 img = XLImage("logo_izq.png")
-                target_h = 72  # ↑ un poco más grande
+                target_h = 72
                 ratio = target_h / img.height
                 img.height = target_h
                 img.width  = int(img.width * ratio)
@@ -327,7 +321,7 @@ if st.session_state.is_admin:
 
             if _Path("logo_der.png").exists():
                 img2 = XLImage("logo_der.png")
-                target_h2 = 72  # ↑ un poco más grande
+                target_h2 = 72
                 ratio2 = target_h2 / img2.height
                 img2.height = target_h2
                 img2.width  = int(img2.width * ratio2)
@@ -335,46 +329,42 @@ if st.session_state.is_admin:
         except Exception:
             pass
 
-        # Títulos
         ws.merge_cells("B3:S3"); ws["B3"].value = "Modelo de Gestión Policial de Fuerza Pública"; ws["B3"].alignment=center; ws["B3"].font=h1_font
         ws.merge_cells("B4:S4"); ws["B4"].value = "Lista de Asistencia & Minuta"; ws["B4"].alignment=center; ws["B4"].font=h1_font
         ws.merge_cells("B5:S5"); ws["B5"].value = "Consecutivo:"; ws["B5"].alignment=center; ws["B5"].font=title_font
-
-        # Banda azul
         ws.merge_cells("B6:S6"); ws["B6"].fill = PatternFill("solid", fgColor=azul_banda)
 
-        # Marco del bloque superior (borde superior en FILA 1)
-        outline_box(1, 2, 6, 19)
+        outline_box(1, 2, 6, 19)  # marco superior
 
-        # ======= Encabezado con cuadrícula =======
-        ws.merge_cells(start_row=7, start_column=2, end_row=7, end_column=4)   # B7:D7
-        ws.merge_cells(start_row=7, start_column=5, end_row=7, end_column=9)   # E7:I7
-        ws.merge_cells(start_row=7, start_column=10, end_row=7, end_column=15) # J7:O7
-        ws.merge_cells(start_row=7, start_column=16, end_row=7, end_column=19) # P7:S7
+        # Encabezado superior con cuadrícula
+        ws.merge_cells(start_row=7, start_column=2, end_row=7, end_column=4)
+        ws.merge_cells(start_row=7, start_column=5, end_row=7, end_column=9)
+        ws.merge_cells(start_row=7, start_column=10, end_row=7, end_column=15)
+        ws.merge_cells(start_row=7, start_column=16, end_row=7, end_column=19)
         ws["B7"].value = f"Fecha: {fecha.day} {mes_es} {fecha.year}"; ws["B7"].font = title_font; ws["B7"].alignment = left
         ws["E7"].value = f"Lugar:  {lugar}" if lugar else "Lugar: "; ws["E7"].font = title_font; ws["E7"].alignment = left
         ws["J7"].value = f"Hora Inicio: {hora_ini.strftime('%H:%M')}"; ws["J7"].alignment = center
         ws["P7"].value = f"Hora Finalización: {hora_fin.strftime('%H:%M')}"; ws["P7"].alignment = center
         box_all(7, 2, 7, 4); box_all(7, 5, 7, 9); box_all(7, 10, 7, 15); box_all(7, 16, 7, 19)
 
-        # Fila 8: Estrategia
+        # Estrategia
         ws.merge_cells(start_row=8, start_column=2, end_row=8, end_column=3)
         ws.merge_cells(start_row=8, start_column=4, end_row=8, end_column=9)
         ws["B8"].value = "Estrategia o Programa:"; ws["B8"].alignment = left
         ws["D8"].value = estrategia; ws["D8"].alignment = left
         box_all(8, 2, 8, 3); box_all(8, 4, 8, 9)
 
-        # Actividad (solo contorno)
+        # Actividad
         ws.merge_cells(start_row=8, start_column=10, end_row=9, end_column=19)
         ws["J8"].value = "ACTIVIDAD: Reunión Virtual de Seguimiento de líneas de acción, acciones estratégicas, indicadores y metas."
         ws["J8"].alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
         outline_box(8, 10, 9, 19)
 
-        # Fila 9: Delegación
+        # Delegación Policial
         ws.merge_cells(start_row=9, start_column=2, end_row=9, end_column=3)
         ws.merge_cells(start_row=9, start_column=4, end_row=9, end_column=9)
         ws["B9"].value = "Dirección / Delegación Policial:"; ws["B9"].alignment = left
-        ws["D9"].value = delegacion; ws["D9"].alignment = Alignment(horizontal="center")
+        ws["D9"].value = delegacion_hdr; ws["D9"].alignment = Alignment(horizontal="center")
         box_all(9, 2, 9, 3); box_all(9, 4, 9, 9)
 
         # Encabezado de la tabla
@@ -383,7 +373,7 @@ if st.session_state.is_admin:
         ws.merge_cells("C10:E11"); ws["C10"].value = "Nombre"
 
         ws["F10"].value = "Cédula de Identidad"
-        ws["G10"].value = "Institución"
+        ws["G10"].value = "Delegación"  # ← antes: Institución
         ws["H10"].value = "Cargo"
         ws["I10"].value = "Teléfono"
         ws.merge_cells("J10:L10"); ws["J10"].value = "Género"
@@ -406,7 +396,6 @@ if st.session_state.is_admin:
             for c in range(2, 20):
                 ws.cell(row=r, column=c).border = border_all
 
-        # Congelar encabezado
         ws.freeze_panes = "A12"
 
         # Filas de asistencia
@@ -421,7 +410,7 @@ if st.session_state.is_admin:
             ws[f"C{r}"].alignment = Alignment(wrap_text=True, horizontal="left", vertical="top")
 
             ws[f"F{r}"].value = str(row.get("Cédula de Identidad",""))
-            ws[f"G{r}"].value = str(row.get("Institución",""))
+            ws[f"G{r}"].value = str(row.get("Delegación",""))  # ← cambio
             ws[f"H{r}"].value = str(row.get("Cargo",""))
             ws[f"I{r}"].value = str(row.get("Teléfono",""))
 
@@ -448,24 +437,21 @@ if st.session_state.is_admin:
             for c in range(2, 20):
                 ws.cell(row=r, column=c).border = border_all
 
-        # ===== Anotaciones / Acuerdos (más bajos) =====
+        # Anotaciones / Acuerdos (bajos)
         last_data_row = start_row + len(rows_df) - 1 if len(rows_df) > 0 else 11
         notes_top = max(25, last_data_row + 2)
-        notes_height = 14  # ← antes 20; ahora menos alto
+        notes_height = 14
 
-        # Títulos de los cuadros
-        ws.merge_cells(start_row=notes_top, start_column=2, end_row=notes_top, end_column=10)  # B..J
-        ws.merge_cells(start_row=notes_top, start_column=12, end_row=notes_top, end_column=19) # L..S
+        ws.merge_cells(start_row=notes_top, start_column=2, end_row=notes_top, end_column=10)
+        ws.merge_cells(start_row=notes_top, start_column=12, end_row=notes_top, end_column=19)
         ws[f"B{notes_top}"].value = "Anotaciones Generales."; ws[f"B{notes_top}"].alignment = center
         ws[f"L{notes_top}"].value = "Acuerdos."; ws[f"L{notes_top}"].alignment = center
         ws[f"B{notes_top}"].font = th_font; ws[f"L{notes_top}"].font = th_font
         ws[f"B{notes_top}"].fill = celda_fill; ws[f"L{notes_top}"].fill = celda_fill
 
-        # Marcos exteriores de los cuadros (sin cuadriculas internas)
-        outline_box(notes_top+1, 2, notes_top+notes_height, 10)   # cuadro izq
-        outline_box(notes_top+1, 12, notes_top+notes_height, 19)  # cuadro der
+        outline_box(notes_top+1, 2, notes_top+notes_height, 10)
+        outline_box(notes_top+1, 12, notes_top+notes_height, 19)
 
-        # Rellenos de texto
         ws.merge_cells(start_row=notes_top+1, start_column=2, end_row=notes_top+notes_height, end_column=10)
         ws[f"B{notes_top+1}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
         if anotaciones_txt.strip(): ws[f"B{notes_top+1}"].value = anotaciones_txt.strip()
@@ -474,17 +460,16 @@ if st.session_state.is_admin:
         ws[f"L{notes_top+1}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
         if acuerdos_txt.strip(): ws[f"L{notes_top+1}"].value = acuerdos_txt.strip()
 
-        # ===== Pie (ajustado a la nueva altura de los cuadros) =====
+        # Pie
         row_pie = notes_top + notes_height + 2
         for r in range(row_pie, row_pie + 8):
             for c in range(2, 20):
-                ws.cell(row=r, column=c).border = Border()  # sin bordes
+                ws.cell(row=r, column=c).border = Border()
 
         ws.merge_cells(start_row=row_pie, start_column=2, end_row=row_pie, end_column=10)
         ws[f"B{row_pie}"].value = f"Se Finaliza la Reunión a:   {hora_fin.strftime('%H:%M')}"
         ws[f"B{row_pie}"].alignment = left
 
-        from openpyxl.utils import get_column_letter
         row_firma = row_pie + 3
         thin_line = Side(style="thin", color="000000")
         sig_c1, sig_c2 = 4, 10  # D..J
@@ -492,6 +477,7 @@ if st.session_state.is_admin:
         for c in range(sig_c1, sig_c2 + 1):
             ws.cell(row=row_firma, column=c).border = Border(bottom=thin_line)
 
+        from openpyxl.utils import get_column_letter
         ws.merge_cells(start_row=row_firma+1, start_column=sig_c1, end_row=row_firma+1, end_column=sig_c2)
         ws[f"{get_column_letter(sig_c1)}{row_firma+1}"].value = "Nombre Completo y Firma"
         ws[f"{get_column_letter(sig_c1)}{row_firma+1}"].alignment = Alignment(horizontal="center", wrap_text=False)
@@ -504,7 +490,6 @@ if st.session_state.is_admin:
         ws[f"L{row_firma+5}"].value = "Sello Policial"
         ws[f"L{row_firma+5}"].alignment = Alignment(horizontal="right")
 
-        # Protección
         ws.protection.sheet = True
         ws.protection.formatColumns = False
         ws.protection.formatRows = False
@@ -528,6 +513,7 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+
 
 
 
