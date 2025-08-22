@@ -309,31 +309,31 @@ if st.session_state.is_admin:
                   "P": 14, "Q": 14, "R": 14, "S": 16}
         for col, w in widths.items(): ws.column_dimensions[col].width = w
 
-        # Altura de filas para dar aire a los logos/títulos
-        ws.row_dimensions[3].height = 38
+        # Altura de filas (más aire arriba para logos más grandes)
+        ws.row_dimensions[3].height = 46  # ↑
         ws.row_dimensions[4].height = 22
         ws.row_dimensions[5].height = 18
         ws.row_dimensions[6].height = 14
 
         # ------- Logos y títulos centrados (B3..S5) -------
         try:
-            # Logo izquierdo (lo movemos a C3 y bajamos a 60px para que quede dentro del marco)
+            # Logo izquierdo: más hacia dentro (D3) y más grande (68 px) sin salirse del marco
             if _Path("logo_izq.png").exists():
                 img = XLImage("logo_izq.png")
-                target_h = 60
+                target_h = 68
                 ratio = target_h / img.height
                 img.height = target_h
                 img.width  = int(img.width * ratio)
-                ws.add_image(img, "C3")  # antes B3
+                ws.add_image(img, "D3")  # antes C3
 
-            # Logo derecho (lo movemos a P3 y bajamos a 60px para que quede dentro del marco)
+            # Logo derecho: más hacia dentro (O3) y más grande (68 px)
             if _Path("logo_der.png").exists():
                 img2 = XLImage("logo_der.png")
-                target_h2 = 60
+                target_h2 = 68
                 ratio2 = target_h2 / img2.height
                 img2.height = target_h2
                 img2.width  = int(img2.width * ratio2)
-                ws.add_image(img2, "P3")  # antes Q3
+                ws.add_image(img2, "O3")  # antes P3
         except Exception:
             pass
 
@@ -343,13 +343,12 @@ if st.session_state.is_admin:
         ws.merge_cells("B5:S5"); ws["B5"].value = "Consecutivo:"; ws["B5"].alignment=center; ws["B5"].font=title_font
 
         # Banda azul DEBAJO de logos/títulos
-        ws.merge_cells("B6:S6"); ws["B6"].fill = banda_fill
+        ws.merge_cells("B6:S6"); ws["B6"].fill = PatternFill("solid", fgColor=azul_banda)
 
-        # 👉 Marco negro alrededor de TODO el bloque superior (B3:S6)
+        # Marco negro alrededor de TODO el bloque superior (B3:S6)
         outline_box(3, 2, 6, 19)
 
         # ======= ENCABEZADO con CUADRICULAS (fila 7) =======
-        # Fila 7: Fecha / Lugar / Hora Inicio / Hora Finalización
         ws.merge_cells(start_row=7, start_column=2, end_row=7, end_column=4)   # B7:D7
         ws.merge_cells(start_row=7, start_column=5, end_row=7, end_column=9)   # E7:I7
         ws.merge_cells(start_row=7, start_column=10, end_row=7, end_column=15) # J7:O7
@@ -381,7 +380,7 @@ if st.session_state.is_admin:
         box_all(9, 2, 9, 3); box_all(9, 4, 9, 9)
 
         # ======= Encabezados de la tabla (filas 10 y 11) =======
-        ws["B10"].value = ""  # ó "Nº"
+        ws["B10"].value = ""
         ws["B10"].alignment = right
         ws.merge_cells("C10:E11"); ws["C10"].value = "Nombre"
 
@@ -409,7 +408,7 @@ if st.session_state.is_admin:
             for c in range(2, 20):
                 ws.cell(row=r, column=c).border = border_all
 
-        # ❗ Congelar SOLO filas del encabezado (sin división vertical)
+        # Congelar solo filas del encabezado
         ws.freeze_panes = "A12"
 
         # Filas de asistencia
@@ -454,7 +453,7 @@ if st.session_state.is_admin:
         last_data_row = start_row + len(rows_df) - 1 if len(rows_df) > 0 else 11
         notes_top = max(25, last_data_row + 2)
 
-        # ---- Anotaciones / Acuerdos (marco exterior, sin cuadriculas) ----
+        # Anotaciones / Acuerdos (marco exterior, sin cuadriculas internas)
         ws.merge_cells(start_row=notes_top, start_column=2, end_row=notes_top, end_column=10)  # B..J
         ws.merge_cells(start_row=notes_top, start_column=12, end_row=notes_top, end_column=19) # L..S
         ws[f"B{notes_top}"].value = "Anotaciones Generales."; ws[f"B{notes_top}"].alignment = center
@@ -473,18 +472,16 @@ if st.session_state.is_admin:
         ws[f"L{notes_top+1}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
         if acuerdos_txt.strip(): ws[f"L{notes_top+1}"].value = acuerdos_txt.strip()
 
-        # ---- Pie limpio: Se Finaliza / Firma (D..J) / Cargo / Sello ----
+        # Pie limpio: Se Finaliza / Firma (D..J) / Cargo / Sello
         row_pie = notes_top + 22
         for r in range(row_pie, row_pie + 8):
             for c in range(2, 20):
                 ws.cell(row=r, column=c).border = Border()  # sin bordes
 
-        # "Se Finaliza..."
         ws.merge_cells(start_row=row_pie, start_column=2, end_row=row_pie, end_column=10)
         ws[f"B{row_pie}"].value = f"Se Finaliza la Reunión a:   {hora_fin.strftime('%H:%M')}"
         ws[f"B{row_pie}"].alignment = left
 
-        # Línea de firma más corta (D..J) + etiqueta centrada (D..J)
         row_firma = row_pie + 3
         thin_line = Side(style="thin", color="000000")
         sig_c1, sig_c2 = 4, 10  # D..J
@@ -496,23 +493,20 @@ if st.session_state.is_admin:
         ws[f"{get_column_letter(sig_c1)}{row_firma+1}"].value = "Nombre Completo y Firma"
         ws[f"{get_column_letter(sig_c1)}{row_firma+1}"].alignment = Alignment(horizontal="center", wrap_text=False)
 
-        # "Cargo:" (izquierda)
         ws.merge_cells(start_row=row_firma+3, start_column=2, end_row=row_firma+3, end_column=10)
         ws[f"B{row_firma+3}"].value = "Cargo:"
         ws[f"B{row_firma+3}"].alignment = left
 
-        # "Sello Policial" (derecha)
         ws.merge_cells(start_row=row_firma+5, start_column=12, end_row=row_firma+5, end_column=19)
         ws[f"L{row_firma+5}"].value = "Sello Policial"
         ws[f"L{row_firma+5}"].alignment = Alignment(horizontal="right")
 
-        # ========= PROTECCIÓN =========
+        # Protección
         ws.protection.sheet = True
         ws.protection.formatColumns = False
         ws.protection.formatRows = False
         ws.protection.selectLockedCells = True
         ws.protection.selectUnlockedCells = True
-        # ws.protection.password = "Sembremos23"  # opcional
 
         bio = BytesIO(); wb.save(bio); return bio.getvalue()
 
@@ -531,6 +525,7 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+
 
 
 
