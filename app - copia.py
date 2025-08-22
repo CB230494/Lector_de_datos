@@ -300,7 +300,7 @@ if st.session_state.is_admin:
         try:
             if _Path("logo_izq.png").exists():
                 img = XLImage("logo_izq.png")
-                target_h = 72  # altura visual del logo
+                target_h = 72
                 ratio = target_h / img.height
                 img.height = target_h
                 img.width  = int(img.width * ratio)
@@ -311,7 +311,7 @@ if st.session_state.is_admin:
                 ratio2 = target_h2 / img2.height
                 img2.height = target_h2
                 img2.width  = int(img2.width * ratio2)
-                ws.add_image(img2, "Q3")  # extremo derecho
+                ws.add_image(img2, "Q3")
         except Exception:
             pass
 
@@ -373,14 +373,10 @@ if st.session_state.is_admin:
         _box_all(9, 2, 9, 3); _box_all(9, 4, 9, 9)
 
         # ======= Encabezados de la tabla (filas 10 y 11) =======
-        # Columna de numeración en B (alineada a la derecha para que quede “pegada” al borde)
         ws["B10"].value = ""  # ó "Nº"
         ws["B10"].alignment = right
-
-        # Nombre ocupa C..E
         ws.merge_cells("C10:E11"); ws["C10"].value = "Nombre"
 
-        # Resto de encabezados
         ws["F10"].value = "Cédula de Identidad"
         ws["G10"].value = "Institución"
         ws["H10"].value = "Cargo"
@@ -390,7 +386,6 @@ if st.session_state.is_admin:
         ws.merge_cells("P10:R10"); ws["P10"].value = "Rango de Edad"
         ws["S10"].value = "FIRMA"
 
-        # Estilos de encabezados
         for rng in ["C10:E11","J10:L10","M10:O10","P10:R10"]:
             c = ws[rng.split(":")[0]]; c.font = th_font; c.alignment = center; c.fill = celda_fill
         for cell in ["F10","G10","H10","I10","S10"]:
@@ -402,49 +397,41 @@ if st.session_state.is_admin:
         for cell in ["J11","K11","L11","M11","N11","O11","P11","Q11","R11"]:
             ws[cell].font = th_font; ws[cell].alignment = center; ws[cell].fill = celda_fill
 
-        # Bordes cabecera tabla
         for r in range(10, 12):
-            for c in range(2, 20):  # B..S
+            for c in range(2, 20):
                 ws.cell(row=r, column=c).border = border_all
 
         ws.freeze_panes = "C12"
 
-        # Filas de asistencia (desde fila 12)
+        # Filas de asistencia
         start_row = 12
         for i, (_, row) in enumerate(rows_df.iterrows()):
             r = start_row + i
-            # numeración en B (alineación a la derecha para que “no se mueva” al ensanchar)
             ws[f"B{r}"].value = i + 1
             ws[f"B{r}"].alignment = right
 
-            # nombre en C..E
             ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=5)
             ws[f"C{r}"].value = str(row.get("Nombre",""))
             ws[f"C{r}"].alignment = Alignment(wrap_text=True, horizontal="left", vertical="top")
 
-            # demás campos
             ws[f"F{r}"].value = str(row.get("Cédula de Identidad",""))
             ws[f"G{r}"].value = str(row.get("Institución",""))
             ws[f"H{r}"].value = str(row.get("Cargo",""))
             ws[f"I{r}"].value = str(row.get("Teléfono",""))
 
-            # limpia marcas
             for col in ["J","K","L","M","N","O","P","Q","R"]:
                 ws[f"{col}{r}"].value = ""
 
-            # marcas de género
             g = (row.get("Género","") or "").strip()
             if g == "F": ws[f"J{r}"].value = "X"
             elif g == "M": ws[f"K{r}"].value = "X"
             elif g == "LGBTIQ+": ws[f"L{r}"].value = "X"
 
-            # sexo
             s = (row.get("Sexo","") or "").strip()
             if s == "H": ws[f"M{r}"].value = "X"
             elif s == "M": ws[f"N{r}"].value = "X"
             elif s == "I": ws[f"O{r}"].value = "X"
 
-            # rango edad
             e = (row.get("Rango de Edad","") or "").strip()
             if e.startswith("18"): ws[f"P{r}"].value = "X"
             elif e.startswith("36"): ws[f"Q{r}"].value = "X"
@@ -452,7 +439,6 @@ if st.session_state.is_admin:
 
             ws[f"S{r}"].value = "Virtual"
 
-            # bordes fila completa
             for c in range(2, 20):
                 ws.cell(row=r, column=c).border = border_all
 
@@ -519,9 +505,15 @@ if st.session_state.is_admin:
         ws[f"L{row_firma+5}"].value = "Sello Policial"
         ws[f"L{row_firma+5}"].alignment = Alignment(horizontal="right")
 
-        # (Opcional) proteger hoja para evitar cambios de anchura de columnas
-        # ws.protection.sheet = True
-        # ws.protection.formatColumns = False
+        # ========= PROTECCIÓN: evita que cambien anchos de columnas/filas =========
+        ws.protection.sheet = True
+        # Permitir seleccionar, pero no formatear columnas/filas (no podrán “mover” anchos)
+        ws.protection.formatColumns = False
+        ws.protection.formatRows = False
+        ws.protection.selectLockedCells = True
+        ws.protection.selectUnlockedCells = True
+        # (Opcional) si quieres poner contraseña:
+        # ws.protection.password = "Sembremos23"
 
         bio = BytesIO(); wb.save(bio); return bio.getvalue()
 
@@ -540,4 +532,5 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+
 
