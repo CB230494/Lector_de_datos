@@ -401,7 +401,8 @@ if st.session_state.is_admin:
             for c in range(2, 20):
                 ws.cell(row=r, column=c).border = border_all
 
-        ws.freeze_panes = "C12"
+        # ❗ Congelar SOLO filas del encabezado (sin división vertical)
+        ws.freeze_panes = "A12"
 
         # Filas de asistencia
         start_row = 12
@@ -486,16 +487,16 @@ if st.session_state.is_admin:
             for c in range(2, 20):
                 ws.cell(row=r, column=c).border = Border()  # sin bordes
 
-        # Texto "Se Finaliza..."
+        # "Se Finaliza..."
         ws.merge_cells(start_row=row_pie, start_column=2, end_row=row_pie, end_column=10)
         ws[f"B{row_pie}"].value = f"Se Finaliza la Reunión a:   {hora_fin.strftime('%H:%M')}"
         ws[f"B{row_pie}"].alignment = left
 
-        # Línea de firma: aplicar borde inferior a TODAS las celdas del rango B..J
+        # Línea de firma: borde inferior en TODAS las celdas B..J
         row_firma = row_pie + 3
         thin_line = Side(style="thin", color="000000")
         ws.merge_cells(start_row=row_firma, start_column=2, end_row=row_firma, end_column=10)
-        for c in range(2, 11):  # B..J (11 es exclusivo)
+        for c in range(2, 11):  # B..J
             ws.cell(row=row_firma, column=c).border = Border(bottom=thin_line)
 
         ws[f"B{row_firma+1}"].value = "Nombre Completo y Firma"
@@ -511,7 +512,7 @@ if st.session_state.is_admin:
         ws[f"L{row_firma+5}"].value = "Sello Policial"
         ws[f"L{row_firma+5}"].alignment = Alignment(horizontal="right")
 
-        # ========= PROTECCIÓN: evita que cambien anchos de columnas/filas =========
+        # ========= PROTECCIÓN: evita cambio de anchos de columnas/filas =========
         ws.protection.sheet = True
         ws.protection.formatColumns = False
         ws.protection.formatRows = False
@@ -536,6 +537,5 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
-
 
 
