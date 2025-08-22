@@ -486,34 +486,38 @@ if st.session_state.is_admin:
             for c in range(2, 20):
                 ws.cell(row=r, column=c).border = Border()  # sin bordes
 
+        # Texto "Se Finaliza..."
         ws.merge_cells(start_row=row_pie, start_column=2, end_row=row_pie, end_column=10)
         ws[f"B{row_pie}"].value = f"Se Finaliza la Reunión a:   {hora_fin.strftime('%H:%M')}"
         ws[f"B{row_pie}"].alignment = left
 
+        # Línea de firma: aplicar borde inferior a TODAS las celdas del rango B..J
         row_firma = row_pie + 3
         thin_line = Side(style="thin", color="000000")
         ws.merge_cells(start_row=row_firma, start_column=2, end_row=row_firma, end_column=10)
-        ws[f"B{row_firma}"].border = Border(bottom=thin_line)
+        for c in range(2, 11):  # B..J (11 es exclusivo)
+            ws.cell(row=row_firma, column=c).border = Border(bottom=thin_line)
+
         ws[f"B{row_firma+1}"].value = "Nombre Completo y Firma"
         ws[f"B{row_firma+1}"].alignment = Alignment(horizontal="center")
 
+        # "Cargo:"
         ws.merge_cells(start_row=row_firma+3, start_column=2, end_row=row_firma+3, end_column=10)
         ws[f"B{row_firma+3}"].value = "Cargo:"
         ws[f"B{row_firma+3}"].alignment = left
 
+        # "Sello Policial" a la derecha
         ws.merge_cells(start_row=row_firma+5, start_column=12, end_row=row_firma+5, end_column=19)
         ws[f"L{row_firma+5}"].value = "Sello Policial"
         ws[f"L{row_firma+5}"].alignment = Alignment(horizontal="right")
 
         # ========= PROTECCIÓN: evita que cambien anchos de columnas/filas =========
         ws.protection.sheet = True
-        # Permitir seleccionar, pero no formatear columnas/filas (no podrán “mover” anchos)
         ws.protection.formatColumns = False
         ws.protection.formatRows = False
         ws.protection.selectLockedCells = True
         ws.protection.selectUnlockedCells = True
-        # (Opcional) si quieres poner contraseña:
-        # ws.protection.password = "Sembremos23"
+        # ws.protection.password = "Sembremos23"  # opcional
 
         bio = BytesIO(); wb.save(bio); return bio.getvalue()
 
@@ -532,5 +536,6 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+
 
 
