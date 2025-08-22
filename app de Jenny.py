@@ -1,692 +1,536 @@
-# === IMPORTACIONES BASE ===
+# =========================
+# 📋 Asistencia – Público + Admin (admin oculto hasta login)
+# =========================
 import streamlit as st
-from streamlit_option_menu import option_menu
 import pandas as pd
+from io import BytesIO
+from datetime import date, time
+import sqlite3
 from pathlib import Path
-from datetime import datetime
 
-# Elimina esta línea si ya incluiste generar_pdf_receta directamente en app.py
-# from exportar_pdf import generar_pdf_receta
+st.set_page_config(page_title="Asistencia – Registro y Admin", layout="wide")
 
-from database.bd_ingresar import (
-    crear_tabla_productos, agregar_producto, obtener_productos, actualizar_producto, eliminar_producto,
-    crear_tabla_insumos, agregar_insumo, obtener_insumos, actualizar_insumo, eliminar_insumo,
-    crear_tabla_recetas, agregar_receta, obtener_recetas, obtener_detalle_receta, eliminar_receta,
-    crear_tabla_entradas_salidas, registrar_movimiento, obtener_historial_movimientos,
-    crear_tabla_ventas, registrar_venta_en_db, obtener_ventas, actualizar_venta, eliminar_venta
-)
+# ---------- DB (SQLite) ----------
+DB_PATH = "asistencia.db"
 
+def get_conn():
+    Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
+    return sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
 
-# === CONFIGURACIÓN GENERAL ===
-st.set_page_config(page_title="Panadería Moderna", layout="wide")
+def init_db():
+    with get_conn() as conn:
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS asistencia(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            nombre TEXT, cedula TEXT, institucion TEXT,
+            cargo TEXT, telefono TEXT,
+            genero TEXT, sexo TEXT, edad TEXT
+        );
+        """)
 
-# === ESTADO DE NAVEGACIÓN ===
-if "pagina" not in st.session_state:
-    st.session_state.pagina = "Inicio"
+def insert_row(row):
+    with get_conn() as conn:
+        conn.execute("""INSERT INTO asistencia
+            (nombre, cedula, institucion, cargo, telefono, genero, sexo, edad)
+            VALUES (?,?,?,?,?,?,?,?)""",
+            (row["Nombre"], row["Cédula de Identidad"], row["Institución"],
+             row["Cargo"], row["Teléfono"], row["Género"], row["Sexo"], row["Rango de Edad"])
+        )
 
-# === ESTILO PERSONALIZADO ===
-st.markdown("""
-    <style>
-        body, .main { background-color: #121212; color: white; }
-        h1, h2, h3 { color: #00ffcc; font-size: 32px; }
-        .stButton>button {
-            background-color: #00ffcc !important;
-            color: black !important;
-            font-size: 24px !important;
-            font-weight: bold !important;
-            padding: 30px 30px;
-            border: none;
-            border-radius: 16px;
-            width: 100%;
-            box-shadow: 4px 4px 10px rgba(0, 255, 204, 0.3);
-            transition: all 0.2s ease-in-out;
-        }
-        .stButton>button:hover {
-            background-color: #00e6b8 !important;
-            box-shadow: 6px 6px 16px rgba(0, 255, 204, 0.5);
-            transform: scale(1.02);
-        }
-        .stDataFrame th, .stDataFrame td {
-            font-size: 18px !important;
-        }
-        .stSelectbox label, .stTextInput label, .stNumberInput label {
-            font-size: 20px !important;
-            color: #00ffcc;
-        }
-    </style>
-""", unsafe_allow_html=True)
+def fetch_all_df(include_id=True):
+    with get_conn() as conn:
+        df = pd.read_sql_query("""
+            SELECT id,
+                   nombre  AS 'Nombre',
+                   cedula  AS 'Cédula de Identidad',
+                   institucion AS 'Institución',
+                   cargo   AS 'Cargo',
+                   telefono AS 'Teléfono',
+                   genero  AS 'Género',
+                   sexo    AS 'Sexo',
+                   edad    AS 'Rango de Edad'
+            FROM asistencia
+            ORDER BY id ASC
+        """, conn)
+    if not df.empty:
+        df.insert(0, "Nº", range(1, len(df)+1))
+        if not include_id:
+            df = df.drop(columns=["id"])
+    else:
+        cols = ["Nº","Nombre","Cédula de Identidad","Institución","Cargo","Teléfono","Género","Sexo","Rango de Edad"]
+        if include_id: cols.insert(1, "id")
+        df = pd.DataFrame(columns=cols)
+    return df
 
-# === MENÚ LATERAL ===
+def update_row_by_id(row_id:int, row:dict):
+    with get_conn() as conn:
+        conn.execute("""
+            UPDATE asistencia
+               SET nombre=?, cedula=?, institucion=?, cargo=?, telefono=?, genero=?, sexo=?, edad=?
+             WHERE id=?""",
+            (row["Nombre"], row["Cédula de Identidad"], row["Institución"],
+             row["Cargo"], row["Teléfono"], row["Género"], row["Sexo"], row["Rango de Edad"], row_id)
+        )
+
+def delete_rows_by_ids(ids):
+    if not ids: return
+    with get_conn() as conn:
+        q = ",".join("?" for _ in ids)
+        conn.execute(f"DELETE FROM asistencia WHERE id IN ({q})", ids)
+
+def delete_all_rows():
+    with get_conn() as conn:
+        conn.execute("DELETE FROM asistencia;")
+
+init_db()
+
+# ---------- Login admin en la barra lateral ----------
+if "is_admin" not in st.session_state:
+    st.session_state.is_admin = False
+
 with st.sidebar:
-    st.session_state.pagina = option_menu(
-        "Navegación",
-        ["Inicio", "Productos", "Insumos", "Recetas", "Entradas/Salidas", "Ventas", "Balance"],
-        icons=["house", "archive", "truck", "file-earmark-text", "arrow-left-right", "wallet", "graph-up"],
-        menu_icon="list",
-        default_index=["Inicio", "Productos", "Insumos", "Recetas", "Entradas/Salidas", "Ventas", "Balance"].index(st.session_state.pagina),
-        styles={
-            "container": {"padding": "5px", "background-color": "#121212"},
-            "icon": {"color": "#00ffcc", "font-size": "20px"},
-            "nav-link": {"color": "#ffffff", "font-size": "18px", "text-align": "left", "margin": "2px"},
-            "nav-link-selected": {"background-color": "#00ffcc", "color": "#121212", "font-weight": "bold"},
-        }
+    st.markdown("### 🔐 Acceso administrador")
+    if not st.session_state.is_admin:
+        pwd = st.text_input("Contraseña", type="password", placeholder="••••••••")
+        if st.button("Ingresar"):
+            if pwd == "Sembremos23":
+                st.session_state.is_admin = True
+                st.success("Acceso concedido.")
+                st.rerun()
+            else:
+                st.error("Contraseña incorrecta.")
+    else:
+        st.success("Sesión de administrador activa")
+        if st.button("Cerrar sesión"):
+            st.session_state.is_admin = False
+            st.rerun()
+
+# ---------- Contenido PÚBLICO ----------
+st.markdown("# 📋 Asistencia – Registro")
+st.markdown("### ➕ Agregar")
+with st.form("form_asistencia_publico", clear_on_submit=True):
+    c1, c2, c3 = st.columns([1.2, 1, 1])
+    nombre      = c1.text_input("Nombre")
+    cedula      = c2.text_input("Cédula de Identidad")
+    institucion = c3.text_input("Institución")
+
+    c4, c5 = st.columns([1, 1])
+    cargo    = c4.text_input("Cargo")
+    telefono = c5.text_input("Teléfono")
+
+    st.markdown("#### ")
+    gcol, scol, ecol = st.columns([1.1, 1.5, 1.5])
+    genero = gcol.radio("Género", ["F", "M", "LGBTIQ+"], horizontal=True)
+    sexo   = scol.radio("Sexo (Hombre, Mujer o Intersex)", ["H", "M", "I"], horizontal=True)
+    edad   = ecol.radio("Rango de Edad", ["18 a 35 años", "36 a 64 años", "65 años o más"], horizontal=True)
+
+    submitted = st.form_submit_button("➕ Agregar", use_container_width=True)
+    if submitted:
+        if not nombre.strip():
+            st.warning("Ingresa al menos el nombre.")
+        else:
+            fila = {
+                "Nombre": nombre.strip(),
+                "Cédula de Identidad": cedula.strip(),
+                "Institución": institucion.strip(),
+                "Cargo": cargo.strip(),
+                "Teléfono": telefono.strip(),
+                "Género": genero,
+                "Sexo": sexo,
+                "Rango de Edad": edad
+            }
+            insert_row(fila)
+            st.success("Registro guardado.")
+
+st.markdown("### 📥 Registros recibidos")
+df_pub = fetch_all_df(include_id=False)
+if not df_pub.empty:
+    st.dataframe(
+        df_pub[["Nº","Nombre","Cédula de Identidad","Institución","Cargo","Teléfono","Género","Sexo","Rango de Edad"]],
+        use_container_width=True, hide_index=True
     )
+else:
+    st.info("Aún no hay registros guardados.")
 
-# === CREACIÓN DE TABLAS AL INICIAR ===
-crear_tabla_productos()
-crear_tabla_insumos()
-crear_tabla_recetas()
-crear_tabla_entradas_salidas() 
-crear_tabla_ventas()
-# === INICIO ===
-if st.session_state.pagina == "Inicio":
-    st.markdown("## 📊 Sistema de Gestión - Panadería ")
-    st.markdown("### Selecciona una opción para comenzar:")
+# ---------- Contenido ADMIN ----------
+if st.session_state.is_admin:
+    st.markdown("---")
+    st.markdown("# 🛠️ Panel del Administrador")
 
-    col1, col2, col3 = st.columns(3)
+    # Encabezado para Excel
+    st.markdown("### 🧾 Datos de encabezado (Excel)")
+    col1, col2 = st.columns([1,1])
     with col1:
-        if st.button("📦 Productos"):
-            st.session_state.pagina = "Productos"
-            st.rerun()
+        fecha_evento = st.date_input("Fecha", value=date.today())
+        lugar = st.text_input("Lugar", value="")
+        estrategia = st.text_input("Estrategia o Programa", value="Estrategia Sembremos Seguridad")
     with col2:
-        if st.button("🚚 Insumos"):
-            st.session_state.pagina = "Insumos"
-            st.rerun()
-    with col3:
-        if st.button("📋 Recetas"):
-            st.session_state.pagina = "Recetas"
-            st.rerun()
+        hora_inicio = st.time_input("Hora Inicio", value=time(9,0))
+        hora_fin = st.time_input("Hora Finalización", value=time(12,10))
+        delegacion = st.text_input("Dirección / Delegación Policial", value="")
 
-    col4, col5, col6 = st.columns(3)
-    with col4:
-        if st.button("🔄 Entradas/Salidas"):
-            st.session_state.pagina = "Entradas/Salidas"
-            st.rerun()
-    with col5:
-        if st.button("💵 Ventas"):
-            st.session_state.pagina = "Ventas"
-            st.rerun()
-    with col6:
-        if st.button("📈 Balance"):
-            st.session_state.pagina = "Balance"
-            st.rerun()
+    st.markdown("### 📝 Anotaciones y Acuerdos (para el Excel)")
+    a_col, b_col = st.columns(2)
+    anotaciones = a_col.text_area("Anotaciones Generales", height=220, placeholder="Escribe las anotaciones generales…")
+    acuerdos    = b_col.text_area("Acuerdos", height=220, placeholder="Escribe los acuerdos…")
 
-# === PRODUCTOS ===
-if st.session_state.pagina == "Productos":
-    st.subheader("📦 Gestión de Productos")
+    st.markdown("### 👥 Registros y edición")
+    df_all = fetch_all_df(include_id=True)
 
-    with st.form("form_agregar_producto"):
-        st.markdown("### ➕ Agregar nuevo producto")
-        nombre = st.text_input("Nombre del producto")
-        unidad = st.selectbox("Unidad", ["unidad", "porción", "pieza", "queque", "paquete"])
-        precio_venta = st.number_input("Precio de venta (₡)", min_value=0.0, format="%.2f")
-        costo = st.number_input("Costo de elaboración (₡)", min_value=0.0, format="%.2f")
-        stock = st.number_input("Cantidad en stock", min_value=0, step=1)
-        submitted = st.form_submit_button("Agregar")
+    if df_all.empty:
+        st.info("Aún no hay registros guardados.")
+    else:
+        editable = df_all.copy()
+        editable["Seleccionar"] = False
 
-        if submitted:
-            if nombre and unidad:
-                agregar_producto(nombre, unidad, precio_venta, costo, stock)
-                st.success(f"✅ Producto '{nombre}' agregado correctamente.")
-                st.rerun()
+        edited = st.data_editor(
+            editable[["Nº","Nombre","Cédula de Identidad","Institución","Cargo","Teléfono",
+                      "Género","Sexo","Rango de Edad","Seleccionar"]],
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "Nº": st.column_config.NumberColumn("Nº", disabled=True),
+                "Seleccionar": st.column_config.CheckboxColumn("Seleccionar", help="Marca para eliminar"),
+                "Género": st.column_config.SelectboxColumn("Género", options=["F","M","LGBTIQ+"]),
+                "Sexo": st.column_config.SelectboxColumn("Sexo", options=["H","M","I"]),
+                "Rango de Edad": st.column_config.SelectboxColumn("Rango de Edad",
+                    options=["18 a 35 años","36 a 64 años","65 años o más"])
+            },
+            key="tabla_admin_editable"
+        )
+
+        c1, c2, c3, c4 = st.columns([1.2, 1.2, 1.2, 2])
+        btn_save = c1.button("💾 Guardar cambios", use_container_width=True)
+        btn_delete = c2.button("🗑️ Eliminar seleccionados", use_container_width=True)
+        confirm_all = c4.checkbox("Confirmar vaciado total", value=False)
+        btn_clear = c3.button("🧹 Vaciar todos", use_container_width=True)
+
+        if btn_save:
+            changes = 0
+            for idx in edited.index:
+                if idx >= len(df_all): continue
+                row_orig = df_all.loc[idx]
+                row_new = edited.loc[idx]
+                fields = ["Nombre","Cédula de Identidad","Institución","Cargo","Teléfono","Género","Sexo","Rango de Edad"]
+                if any(str(row_orig[f]) != str(row_new[f]) for f in fields):
+                    update_row_by_id(int(row_orig["id"]), {f: row_new[f] for f in fields})
+                    changes += 1
+            st.success(f"Se guardaron {changes} cambio(s).") if changes else st.info("No hay cambios para guardar.")
+            if changes: st.rerun()
+
+        if btn_delete:
+            idx_sel = edited.index[edited["Seleccionar"] == True].tolist()
+            ids = df_all.iloc[idx_sel]["id"].tolist()
+            if ids:
+                delete_rows_by_ids(ids); st.success(f"Eliminadas {len(ids)} fila(s)."); st.rerun()
             else:
-                st.warning("⚠️ Debes completar todos los campos.")
+                st.info("No hay filas seleccionadas para eliminar.")
 
-    st.markdown("### 📋 Lista de productos")
-    productos = obtener_productos()
-
-    if productos:
-        df = pd.DataFrame(productos, columns=["ID", "Nombre", "Unidad", "Precio Venta", "Costo", "Stock"])
-        df["Ganancia (₡)"] = df["Precio Venta"] - df["Costo"]
-
-        df["Precio Venta"] = df["Precio Venta"].map(lambda x: f"₡{int(x)}" if x == int(x) else f"₡{x:.2f}")
-        df["Costo"] = df["Costo"].map(lambda x: f"₡{int(x)}" if x == int(x) else f"₡{x:.2f}")
-        df["Ganancia (₡)"] = df["Ganancia (₡)"].map(lambda x: f"₡{int(x)}" if x == int(x) else f"₡{x:.2f}")
-
-        def color_stock(val):
-            return 'background-color: red; color: white' if val < 5 else ''
-        styled_df = df.style.applymap(color_stock, subset=["Stock"])
-        st.dataframe(styled_df, use_container_width=True)
-
-        st.markdown("### ✏️ Editar o eliminar un producto")
-        nombres_disponibles = [producto[1] for producto in productos]
-        seleccion = st.selectbox("Seleccionar producto por nombre", nombres_disponibles)
-
-        for producto in productos:
-            if producto[1] == seleccion:
-                id_producto = producto[0]
-                nombre_original = producto[1]
-                unidad_original = producto[2]
-                precio_original = producto[3]
-                costo_original = producto[4]
-                stock_original = producto[5]
-                break
-
-        with st.form("form_editar_producto"):
-            nuevo_nombre = st.text_input("Nombre", value=nombre_original)
-            nueva_unidad = st.selectbox("Unidad", ["unidad", "porción", "pieza", "queque", "paquete"],
-                                        index=["unidad", "porción", "pieza", "queque", "paquete"].index(unidad_original))
-            nuevo_precio = st.number_input("Precio de venta (₡)", value=float(precio_original), format="%.2f")
-            nuevo_costo = st.number_input("Costo de elaboración (₡)", value=float(costo_original), format="%.2f")
-            nuevo_stock = st.number_input("Stock disponible", value=int(stock_original), step=1)
-
-            col1, col2 = st.columns(2)
-            with col1:
-                actualizar = st.form_submit_button("Actualizar")
-            with col2:
-                eliminar = st.form_submit_button("Eliminar")
-
-            if actualizar:
-                actualizar_producto(id_producto, nuevo_nombre, nueva_unidad, nuevo_precio, nuevo_costo, nuevo_stock)
-                st.success("✅ Producto actualizado correctamente.")
-                st.rerun()
-            if eliminar:
-                eliminar_producto(id_producto)
-                st.success("🗑️ Producto eliminado correctamente.")
-                st.rerun()
-    else:
-        st.info("ℹ️ No hay productos registrados todavía.")
-# =============================
-# 🚚 PESTAÑA DE INSUMOS
-# =============================
-if st.session_state.pagina == "Insumos":
-    st.subheader("🚚 Gestión de Insumos")
-
-    unidades_dict = {
-        "Kilogramo (kg)": "kg",
-        "Gramo (g)": "g",
-        "Litro (l)": "l",
-        "Mililitro (ml)": "ml",
-        "Barra": "barra",
-        "Unidad": "unidad"
-    }
-
-    with st.form("form_agregar_insumo"):
-        st.markdown("### ➕ Agregar nuevo insumo")
-        nombre_i = st.text_input("Nombre del insumo")
-        unidad_i_visible = st.selectbox("Unidad", list(unidades_dict.keys()))
-        unidad_i = unidades_dict[unidad_i_visible]
-        cantidad = st.number_input("Cantidad adquirida", min_value=0.0)
-        costo_total = st.number_input("Costo total (₡)", min_value=0.0, format="%.2f")
-        submitted_i = st.form_submit_button("Agregar")
-
-        if submitted_i:
-            if nombre_i and unidad_i and cantidad > 0:
-                costo_unitario = costo_total / cantidad
-                agregar_insumo(nombre_i, unidad_i, costo_unitario, cantidad)
-
-                # Calcular precio por unidad base
-                if unidad_i in ["kg", "l"]:
-                    costo_base = costo_unitario / 1000
-                    unidad_base = "gramo" if unidad_i == "kg" else "mililitro"
-                else:
-                    costo_base = costo_unitario
-                    unidad_base = unidad_i
-
-                st.success(
-                    f"✅ '{nombre_i}' agregado correctamente. "
-                    f"Cantidad: {cantidad} {unidad_i}, Costo total: ₡{costo_total:.2f}, "
-                    f"₡{costo_unitario:.2f} por {unidad_i} → ₡{costo_base:.2f} por {unidad_base}"
-                )
-                st.rerun()
+        if btn_clear:
+            if confirm_all:
+                delete_all_rows(); st.success("Se vaciaron todos los registros."); st.rerun()
             else:
-                st.warning("⚠️ Debes completar todos los campos y la cantidad debe ser mayor a cero.")
-
-    st.markdown("### 📋 Lista de insumos")
-    insumos = obtener_insumos()
-
-    if insumos:
-        df_i = pd.DataFrame(insumos, columns=["ID", "Nombre", "Unidad", "Costo Unitario", "Cantidad"])
-
-        unidad_legible = {v: k for k, v in unidades_dict.items()}
-        df_i["Unidad Mostrada"] = df_i["Unidad"].map(unidad_legible)
-
-        def calcular_precio_base(row):
-            if row["Unidad"] in ["kg", "l"]:
-                return row["Costo Unitario"] / 1000
-            else:
-                return row["Costo Unitario"]
-
-        df_i["₡ por unidad base"] = df_i.apply(calcular_precio_base, axis=1)
-        df_i["₡ por unidad base"] = df_i["₡ por unidad base"].map(lambda x: f"₡{x:.2f}")
-
-        df_i["Costo Total (₡)"] = df_i["Costo Unitario"] * df_i["Cantidad"]
-        df_i["Costo Total (₡)"] = df_i["Costo Total (₡)"].map(lambda x: f"₡{x:,.2f}")
-        df_i["Costo Unitario"] = df_i["Costo Unitario"].map(lambda x: f"₡{x:,.2f}")
-
-        st.dataframe(df_i[["ID", "Nombre", "Unidad Mostrada", "Costo Unitario", "Cantidad", "Costo Total (₡)", "₡ por unidad base"]], use_container_width=True)
-
-        st.markdown("### ✏️ Editar o eliminar un insumo")
-        nombres_insumos = [insumo[1] for insumo in insumos]
-        seleccion_i = st.selectbox("Seleccionar insumo por nombre", nombres_insumos)
-
-        for insumo in insumos:
-            if insumo[1] == seleccion_i:
-                id_insumo = insumo[0]
-                nombre_original = insumo[1]
-                unidad_original = insumo[2]
-                costo_unitario_original = insumo[3]
-                cantidad_original = insumo[4]
-                costo_total_original = costo_unitario_original * cantidad_original
-                break
-
-        unidad_visible_original = [k for k, v in unidades_dict.items() if v == unidad_original][0]
-
-        with st.form("form_editar_insumo"):
-            nuevo_nombre_i = st.text_input("Nombre", value=nombre_original)
-            nueva_unidad_visible = st.selectbox("Unidad", list(unidades_dict.keys()),
-                                                index=list(unidades_dict.keys()).index(unidad_visible_original))
-            nueva_unidad = unidades_dict[nueva_unidad_visible]
-            nueva_cantidad = st.number_input("Cantidad adquirida", value=float(cantidad_original))
-            nuevo_costo_total = st.number_input("Costo total (₡)", value=float(costo_total_original), format="%.2f")
-
-            col1, col2 = st.columns(2)
-            with col1:
-                actualizar_i = st.form_submit_button("Actualizar")
-            with col2:
-                eliminar_i = st.form_submit_button("Eliminar")
-
-            if actualizar_i and nueva_cantidad > 0:
-                nuevo_costo_unitario = nuevo_costo_total / nueva_cantidad
-                actualizar_insumo(id_insumo, nuevo_nombre_i, nueva_unidad, nuevo_costo_unitario, nueva_cantidad)
-                st.success("✅ Insumo actualizado correctamente.")
-                st.rerun()
-            if eliminar_i:
-                eliminar_insumo(id_insumo)
-                st.success("🗑️ Insumo eliminado correctamente.")
-                st.rerun()
-    else:
-        st.info("ℹ️ No hay insumos registrados todavía.")
-# =============================
-# 📋 PESTAÑA DE RECETAS
-# =============================
-if st.session_state.pagina == "Recetas":
-    st.subheader("📋 Gestión de Recetas")
-    crear_tabla_recetas()
-
-    with st.form("form_nueva_receta"):
-        st.markdown("### ➕ Crear nueva receta")
-
-        nombre_receta = st.text_input("📛 Nombre de la receta")
-        instrucciones = st.text_area("📖 Instrucciones de preparación")
-        imagen_receta = st.file_uploader("📷 Foto del producto final (opcional)", type=["png", "jpg", "jpeg"])
-
-        insumos = obtener_insumos()
-        insumo_seleccionado = []
-
-        if not insumos:
-            st.warning("⚠️ No hay insumos registrados. Agrega insumos primero.")
-        else:
-            st.markdown("### 🧺 Seleccionar ingredientes:")
-            for insumo in insumos:
-                insumo_id, nombre, unidad, _, _ = insumo
-                cantidad = st.number_input(f"{nombre} ({unidad})", min_value=0.0, step=0.1, key=f"nuevo_{insumo_id}")
-                if cantidad > 0:
-                    insumo_seleccionado.append((insumo_id, cantidad))
-
-        submitted_receta = st.form_submit_button("🍽️ Guardar receta")
-
-        if submitted_receta:
-            if not nombre_receta or not insumo_seleccionado:
-                st.warning("⚠️ Debes ingresar un nombre y al menos un insumo.")
-            else:
-                agregar_receta(nombre_receta, instrucciones, insumo_seleccionado)
-                if imagen_receta:
-                    carpeta_imagenes = Path("imagenes_recetas")
-                    carpeta_imagenes.mkdir(exist_ok=True)
-                    nombre_archivo = f"{nombre_receta.replace(' ', '_')}.jpg"
-                    with open(carpeta_imagenes / nombre_archivo, "wb") as f:
-                        f.write(imagen_receta.read())
-                st.success(f"✅ Receta '{nombre_receta}' guardada correctamente.")
-                st.rerun()
-
-    st.markdown("### 📋 Recetas registradas")
-    recetas = obtener_recetas()
-
-    if recetas:
-        for receta in recetas:
-            receta_id, nombre, instrucciones = receta
-            detalles = obtener_detalle_receta(receta_id)
-            insumos_db = {i[0]: i for i in obtener_insumos()}
-
-            desglose = []
-            costo_total = 0
-
-            for nombre_insumo, cantidad, unidad, _ in detalles:
-                for insumo in insumos_db.values():
-                    if insumo[1] == nombre_insumo:
-                        costo_unitario = insumo[3]
-                        unidad_insumo = insumo[2]
-
-                        if unidad_insumo in ["kg", "l"]:
-                            costo_por_base = costo_unitario / 1000
-                            cantidad_en_base = cantidad * 1000 if unidad == unidad_insumo else cantidad
-                        else:
-                            costo_por_base = costo_unitario
-                            cantidad_en_base = cantidad
-
-                        subtotal = cantidad_en_base * costo_por_base
-                        costo_total += subtotal
-
-                        desglose.append((nombre_insumo, cantidad, unidad, costo_por_base, subtotal))
-                        break
-
-            with st.expander(f"🍰 {nombre} - Costo total: ₡{costo_total:,.2f}"):
-                ruta_img = Path("imagenes_recetas") / f"{nombre.replace(' ', '_')}.jpg"
-                if ruta_img.exists():
-                    st.image(str(ruta_img), caption=f"📷 {nombre}", width=300)
-
-                st.markdown(f"**📝 Instrucciones:** {instrucciones or 'Sin instrucciones.'}")
-                st.markdown("**🧾 Ingredientes:**")
-                for nombre_i, cant_i, unidad_i, costo_u, subtotal in desglose:
-                    st.markdown(
-                        f"- {nombre_i} — {cant_i:.2f} {unidad_i} — "
-                        f"(₡{costo_u:.2f} c/u → Subtotal: ₡{subtotal:,.2f})"
-                    )
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button(f"🗑️ Eliminar receta", key=f"eliminar_{receta_id}"):
-                        eliminar_receta(receta_id)
-                        if ruta_img.exists():
-                            ruta_img.unlink()
-                        st.success(f"🗑️ Receta '{nombre}' eliminada.")
-                        st.rerun()
-                with col2:
-                    if st.button("✏️ Editar receta", key=f"editar_{receta_id}"):
-                        st.session_state[f"editando_{receta_id}"] = True
-
-            if st.session_state.get(f"editando_{receta_id}", False):
-                with st.form(f"form_edicion_{receta_id}"):
-                    nuevo_nombre = st.text_input("📛 Nuevo nombre", value=nombre, key=f"nombre_{receta_id}")
-                    nuevas_instrucciones = st.text_area("📖 Nuevas instrucciones", value=instrucciones or "", key=f"inst_{receta_id}")
-                    nueva_imagen = st.file_uploader("📷 Nueva imagen (opcional)", type=["jpg", "jpeg", "png"], key=f"img_{receta_id}")
-
-                    nuevos_insumos = []
-                    insumos = obtener_insumos()
-                    for insumo in insumos:
-                        insumo_id, insumo_nombre, unidad, _, _ = insumo
-                        cantidad_actual = next((c for n, c, u, _ in detalles if n == insumo_nombre), 0.0)
-                        cantidad = st.number_input(
-                            f"{insumo_nombre} ({unidad})",
-                            value=float(cantidad_actual),
-                            min_value=0.0,
-                            step=0.1,
-                            key=f"insumo_edit_{receta_id}_{insumo_id}"
-                        )
-                        if cantidad > 0:
-                            nuevos_insumos.append((insumo_id, cantidad))
-
-                    guardar = st.form_submit_button("💾 Guardar cambios")
-                    if guardar:
-                        eliminar_receta(receta_id)
-                        agregar_receta(nuevo_nombre, nuevas_instrucciones, nuevos_insumos)
-                        carpeta = Path("imagenes_recetas")
-                        viejo = carpeta / f"{nombre.replace(' ', '_')}.jpg"
-                        nuevo = carpeta / f"{nuevo_nombre.replace(' ', '_')}.jpg"
-                        if nueva_imagen:
-                            with open(nuevo, "wb") as f:
-                                f.write(nueva_imagen.read())
-                        elif viejo.exists() and nombre != nuevo_nombre:
-                            viejo.rename(nuevo)
-                        st.success("✅ Receta actualizada.")
-                        st.session_state[f"editando_{receta_id}"] = False
-                        st.rerun()
-    else:
-        st.info("ℹ️ No hay recetas registradas todavía.")
-# =============================
-# 📤 PESTAÑA DE ENTRADAS Y SALIDAS
-# =============================
-if st.session_state.pagina == "Entradas/Salidas":
-    st.subheader("📤 Registro de Entradas y Salidas de Insumos")
-
-    insumos = obtener_insumos()
-    if not insumos:
-        st.warning("⚠️ No hay insumos disponibles. Registra insumos primero.")
-        st.stop()
-
-    unidad_legible = {
-        "kg": "kilogramos",
-        "g": "gramos",
-        "l": "litros",
-        "ml": "mililitros",
-        "barra": "barras",
-        "unidad": "unidades"
-    }
-
-    # Mostrar nombres con unidad legible en el selectbox
-    nombres_insumos = [f"{i[1]} ({unidad_legible.get(i[2], i[2])})" for i in insumos]
-    insumo_elegido = st.selectbox("🔽 Selecciona el insumo", nombres_insumos)
-
-    index = nombres_insumos.index(insumo_elegido)
-    insumo_id, nombre, unidad, costo_unitario, cantidad_actual = insumos[index]
-    unidad_visible = unidad_legible.get(unidad, unidad)
-
-    st.markdown(
-        f"<div style='font-size:20px; font-weight:bold; color:#ffa500;'>📦 Cantidad disponible: "
-        f"{cantidad_actual:.2f} {unidad_visible}</div>", unsafe_allow_html=True
-    )
-
-    tipo_movimiento = st.radio("📌 Tipo de movimiento", ["Entrada", "Salida"], horizontal=True)
-    cantidad = st.number_input("📏 Cantidad a registrar", min_value=0.0, step=0.1)
-    motivo = st.text_input("✏️ Motivo (opcional)")
-    registrar = st.button("💾 Registrar movimiento")
-
-    if registrar:
-        if tipo_movimiento == "Salida" and cantidad > cantidad_actual:
-            st.error("❌ No hay suficiente stock para realizar la salida.")
-        else:
-            fecha_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            registrar_movimiento(insumo_id, tipo_movimiento, cantidad, fecha_hora, motivo)
-            st.success(f"✅ {tipo_movimiento} registrada correctamente.")
-            st.rerun()
-
-    # === HISTORIAL DE MOVIMIENTOS ===
-    historial = obtener_historial_movimientos()
-    if historial:
-        st.markdown("### 📜 Historial de Movimientos")
-        df_hist = pd.DataFrame(historial, columns=["ID", "Insumo", "Tipo", "Cantidad", "Fecha y Hora", "Motivo"])
-        df_hist["Fecha y Hora"] = pd.to_datetime(df_hist["Fecha y Hora"]).dt.strftime("%d/%m/%Y")
-        df_hist["Cantidad"] = df_hist["Cantidad"].apply(lambda x: f"{x:.2f}")
-        df_hist = df_hist.drop(columns=["ID"])
-
-        def colorear_tipo(val):
-            color = 'green' if val == "Entrada" else 'red'
-            return f'color: {color}; font-weight: bold'
-
-        st.dataframe(df_hist.style.applymap(colorear_tipo, subset=["Tipo"]), use_container_width=True)
-
-    # === INSUMOS CON STOCK BAJO ===
-    st.markdown("### 🚨 Insumos con stock bajo")
-    bajo_stock = [i for i in insumos if i[4] < 3]
-    if bajo_stock:
-        df_bajo = pd.DataFrame(bajo_stock, columns=["ID", "Nombre", "Unidad", "₡ x unidad", "Cantidad disponible"])
-        df_bajo["Unidad"] = df_bajo["Unidad"].map(unidad_legible)  # ✅ Nombre legible
-        df_bajo["₡ x unidad"] = df_bajo["₡ x unidad"].apply(lambda x: f"₡{x:,.2f}")
-        df_bajo["Cantidad disponible"] = df_bajo["Cantidad disponible"].apply(lambda x: f"{x:.2f}")
-        df_bajo = df_bajo.drop(columns=["ID"])
-        st.warning("⚠️ Tienes insumos con menos de 3 unidades.")
-        st.dataframe(df_bajo.style.highlight_max(axis=0, color="salmon"), use_container_width=True)
-    else:
-        st.success("✅ Todos los insumos tienen suficiente stock.")
-# =============================
-# 💰 PESTAÑA DE VENTAS
-# =============================
-if st.session_state.pagina == "Ventas":
-    st.subheader("💰 Registro de Ventas de Productos")
-
-    productos = obtener_productos()
-    if not productos:
-        st.warning("⚠️ No hay productos disponibles. Agrega primero desde la pestaña de Productos.")
-    else:
-        nombres_productos = [f"{p[1]} ({p[2]})" for p in productos]
-        producto_elegido = st.selectbox("🧁 Selecciona el producto vendido", nombres_productos)
-
-        index = nombres_productos.index(producto_elegido)
-        id_producto, nombre, unidad, precio_venta, costo_unitario, stock_disponible = productos[index]
-
-        st.markdown(f"**💵 Precio de venta:** ₡{precio_venta:,.2f}")
-        st.markdown(f"**🧾 Costo de elaboración:** ₡{costo_unitario:,.2f}")
-        st.markdown(f"**📦 Stock disponible:** {stock_disponible:.2f} {unidad}")
-
-        cantidad_vendida = st.number_input("📏 Cantidad vendida", min_value=0.0, step=0.1)
-        registrar_venta = st.button("💾 Registrar venta")
-
-        if registrar_venta:
-            if cantidad_vendida <= 0:
-                st.warning("⚠️ Debes ingresar una cantidad mayor a cero.")
-            elif cantidad_vendida > stock_disponible:
-                st.error("❌ No puedes vender más de lo que tienes en stock.")
-            else:
-                ingreso_total = round(cantidad_vendida * precio_venta, 2)
-                costo_total = round(cantidad_vendida * costo_unitario, 2)
-                ganancia_total = round(ingreso_total - costo_total, 2)
-                fecha_actual = datetime.now().strftime("%d/%m/%Y")
-
-                registrar_venta_en_db(nombre, unidad, cantidad_vendida, ingreso_total, costo_total, ganancia_total, fecha_actual)
-
-                # Descontar del stock
-                actualizar_producto(id_producto, nombre, unidad, precio_venta, costo_unitario, stock_disponible - cantidad_vendida)
-
-                st.success("✅ Venta registrada correctamente.")
-                st.rerun()
-
-    # Mostrar historial de ventas
-    ventas = obtener_ventas()
-    if ventas:
-        st.markdown("### 📋 Historial de ventas")
-        df_ventas = pd.DataFrame(ventas, columns=["ID", "Producto", "Unidad", "Cantidad", "Ingreso (₡)", "Costo (₡)", "Ganancia (₡)", "Fecha"])
-        df_ventas["Cantidad"] = df_ventas["Cantidad"].apply(lambda x: f"{x:.2f}")
-        df_ventas["Ingreso (₡)"] = df_ventas["Ingreso (₡)"].apply(lambda x: f"₡{x:,.2f}")
-        df_ventas["Costo (₡)"] = df_ventas["Costo (₡)"].apply(lambda x: f"₡{x:,.2f}")
-        df_ventas["Ganancia (₡)"] = df_ventas["Ganancia (₡)"].apply(lambda x: f"₡{x:,.2f}")
-
-        st.dataframe(df_ventas.drop(columns=["ID"]), use_container_width=True)
-
-        total_ingresos = sum([v[4] for v in ventas])
-        total_ganancias = sum([v[6] for v in ventas])
-
-        st.markdown(f"**💵 Total ingresos:** ₡{total_ingresos:,.2f}")
-        st.markdown(f"**📈 Total ganancias:** ₡{total_ganancias:,.2f}")
-
-        # Producto más vendido
-        df_crudo = pd.DataFrame(ventas, columns=["ID", "Producto", "Unidad", "Cantidad", "Ingreso", "Costo", "Ganancia", "Fecha"])
-        producto_estrella = df_crudo.groupby("Producto")["Cantidad"].sum().idxmax()
-        cantidad_estrella = df_crudo.groupby("Producto")["Cantidad"].sum().max()
-        st.success(f"🌟 Producto estrella: **{producto_estrella}** con **{cantidad_estrella:.2f}** unidades vendidas")
-
-        # Editar/eliminar ventas
-        st.markdown("### ✏️ Editar o eliminar una venta")
-        ids_ventas = [f"{v[0]} - {v[1]} ({v[3]:.2f})" for v in ventas]
-        seleccion_id = st.selectbox("Selecciona una venta", ids_ventas)
-
-        venta_id = int(seleccion_id.split(" - ")[0])
-        venta = next(v for v in ventas if v[0] == venta_id)
-
-        nueva_cantidad = st.number_input("Nueva cantidad vendida", min_value=0.1, value=float(venta[3]), step=0.1)
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Actualizar venta"):
-                nuevo_ingreso = round(nueva_cantidad * float(precio_venta), 2)
-                nuevo_costo = round(nueva_cantidad * float(costo_unitario), 2)
-                nueva_ganancia = round(nuevo_ingreso - nuevo_costo, 2)
-
-                actualizar_venta(venta_id, nueva_cantidad, nuevo_ingreso, nuevo_costo, nueva_ganancia)
-                st.success("✅ Venta actualizada correctamente.")
-                st.rerun()
-        with col2:
-            if st.button("Eliminar venta"):
-                eliminar_venta(venta_id)
-                st.success("🗑️ Venta eliminada correctamente.")
-                st.rerun()
-    else:
-        st.info("ℹ️ Aún no hay ventas registradas.")
-
-
-# =============================
-# 📊 PESTAÑA DE BALANCE
-# =============================
-if st.session_state.pagina == "Balance":
-    st.subheader("📊 Balance General del Negocio")
-
-    # ==== Selección de rango de fechas ====
-    st.markdown("### 📅 Selecciona un rango de fechas")
-    col1, col2 = st.columns(2)
-    with col1:
-        fecha_inicio = st.date_input("Desde", value=datetime.today().replace(day=1))
-    with col2:
-        fecha_fin = st.date_input("Hasta", value=datetime.today())
-
-    # ==== Inventario de Insumos ====
-    insumos = obtener_insumos()
-    if insumos:
-        df_insumos = pd.DataFrame(insumos, columns=["ID", "Nombre", "Unidad", "Costo Unitario", "Cantidad"])
-
-        unidad_legible = {
-            "kg": "kilogramos",
-            "g": "gramos",
-            "l": "litros",
-            "ml": "mililitros",
-            "barra": "barras",
-            "unidad": "unidades"
-        }
-        df_insumos["Unidad"] = df_insumos["Unidad"].map(unidad_legible)
-
-        df_insumos["Total (₡)"] = df_insumos["Costo Unitario"] * df_insumos["Cantidad"]
-        df_insumos["Costo Unitario"] = df_insumos["Costo Unitario"].apply(lambda x: f"₡{x:,.2f}")
-        df_insumos["Total (₡)"] = df_insumos["Total (₡)"].apply(lambda x: f"₡{x:,.2f}")
-
-        total_inventario_num = sum([i[3] * i[4] for i in insumos])  # sin formato
-
-        st.markdown("### 📦 Valor del inventario de insumos")
-        st.dataframe(df_insumos[["Nombre", "Unidad", "Cantidad", "Costo Unitario", "Total (₡)"]], use_container_width=True)
-        st.markdown(f"**🔹 Total inventario:** ₡{total_inventario_num:,.2f}")
-    else:
-        st.info("ℹ️ No hay insumos registrados.")
-
-    st.divider()
-
-    # ==== Ventas filtradas por fecha ====
-    st.markdown("### 💰 Ventas registradas en el período")
-
-    ventas = obtener_ventas()
-    if ventas:
-        df_ventas = pd.DataFrame(ventas, columns=["ID", "Producto", "Unidad", "Cantidad", "Ingreso (₡)", "Costo (₡)", "Ganancia (₡)", "Fecha"])
-        df_ventas["Fecha"] = pd.to_datetime(df_ventas["Fecha"], format="%d/%m/%Y")
-
-        df_ventas_filtrado = df_ventas[
-            (df_ventas["Fecha"] >= pd.to_datetime(fecha_inicio)) &
-            (df_ventas["Fecha"] <= pd.to_datetime(fecha_fin))
-        ]
-
-        if not df_ventas_filtrado.empty:
-            total_ingresos = df_ventas_filtrado["Ingreso (₡)"].sum()
-            total_costos = df_ventas_filtrado["Costo (₡)"].sum()
-            total_ganancia = df_ventas_filtrado["Ganancia (₡)"].sum()
-
-            df_ventas_filtrado["Cantidad"] = df_ventas_filtrado["Cantidad"].apply(lambda x: f"{x:.2f}")
-            df_ventas_filtrado["Ingreso (₡)"] = df_ventas_filtrado["Ingreso (₡)"].apply(lambda x: f"₡{x:,.2f}")
-            df_ventas_filtrado["Costo (₡)"] = df_ventas_filtrado["Costo (₡)"].apply(lambda x: f"₡{x:,.2f}")
-            df_ventas_filtrado["Ganancia (₡)"] = df_ventas_filtrado["Ganancia (₡)"].apply(lambda x: f"₡{x:,.2f}")
-            df_ventas_filtrado["Fecha"] = df_ventas_filtrado["Fecha"].dt.strftime("%d/%m/%Y")
-
-            st.dataframe(df_ventas_filtrado.drop(columns=["ID"]), use_container_width=True)
-
-            st.markdown(f"- **🟢 Ingresos:** ₡{total_ingresos:,.2f}")
-            st.markdown(f"- **🧾 Costos:** ₡{total_costos:,.2f}")
-            st.markdown(f"- **📈 Ganancia total:** ₡{total_ganancia:,.2f}")
-
-            st.divider()
-
-            st.markdown("### 📉 Comparativo resumen")
-            st.markdown(f"🔸 **Valor actual del inventario:** ₡{total_inventario_num:,.2f}")
-            st.markdown(f"🔸 **Ganancia generada en período:** ₡{total_ganancia:,.2f}")
-            balance_total = total_ingresos - total_inventario_num
-            st.markdown(f"🔸 **Balance estimado (ingresos - inventario):** ₡{balance_total:,.2f}")
-        else:
-            st.info("ℹ️ No hay ventas registradas en el rango seleccionado.")
-    else:
-        st.info("ℹ️ No hay ventas registradas.")
+                st.warning("Marca 'Confirmar vaciado total' para continuar.")
+
+    # ===== Excel en UNA HOJA =====
+    st.markdown("### ⬇️ Excel oficial (una sola hoja)")
+    
+
+    def build_excel_oficial_single(
+        fecha: date, lugar: str, hora_ini: time, hora_fin: time,
+        estrategia: str, delegacion: str, rows_df: pd.DataFrame,
+        anotaciones_txt: str, acuerdos_txt: str
+    ) -> bytes:
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+            from openpyxl.drawing.image import Image as XLImage
+            from openpyxl.utils import get_column_letter
+            from pathlib import Path as _Path
+        except Exception:
+            st.error("Falta 'openpyxl' en requirements.txt")
+            return b""
+
+        # Estilos / colores
+        azul_banda = "1F3B73"
+        gris_head  = "D9D9D9"
+        celda_fill = PatternFill("solid", fgColor=gris_head)
+        banda_fill = PatternFill("solid", fgColor=azul_banda)
+        th_font    = Font(bold=True)
+        title_font = Font(bold=True, size=12)
+        h1_font    = Font(bold=True, size=14)
+        center     = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        right      = Alignment(horizontal="right",  vertical="center")
+        left       = Alignment(horizontal="left",   vertical="center", wrap_text=True)
+        thin       = Side(style="thin", color="000000")
+        border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        def outline_box(r1, c1, r2, c2):
+            for c in range(c1, c2+1):
+                t = ws.cell(row=r1, column=c)
+                t.border = Border(top=thin, left=t.border.left, right=t.border.right, bottom=t.border.bottom)
+                b = ws.cell(row=r2, column=c)
+                b.border = Border(bottom=thin, left=b.border.left, right=b.border.right, top=b.border.top)
+            for r in range(r1, r2+1):
+                l = ws.cell(row=r, column=c1)
+                l.border = Border(left=thin, top=l.border.top, right=l.border.right, bottom=l.border.bottom)
+                rgt = ws.cell(row=r, column=c2)
+                rgt.border = Border(right=thin, top=rgt.border.top, left=rgt.border.left, bottom=rgt.border.bottom)
+
+        def box_all(r1, c1, r2, c2):
+            for r in range(r1, r2+1):
+                for c in range(c1, c2+1):
+                    ws.cell(row=r, column=c).border = border_all
+
+        # Mes en español
+        MESES_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto",
+                    "septiembre","octubre","noviembre","diciembre"]
+        mes_es = MESES_ES[fecha.month-1]
+
+        wb = Workbook()
+        ws = wb.active; ws.title = "Lista"
+        ws.sheet_view.showGridLines = False
+
+        # Página
+        ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
+        ws.page_setup.paperSize = ws.PAPERSIZE_A4
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
+        ws.page_margins.left = ws.page_margins.right = 0.3
+        ws.page_margins.top = ws.page_margins.bottom = 0.4
+
+        # Columnas
+        widths = {"A": 2, "B": 6, "C": 22, "D": 22, "E": 22, "F": 18, "G": 22,
+                  "H": 20, "I": 16, "J": 6, "K": 6, "L": 10, "M": 6, "N": 6, "O": 6,
+                  "P": 14, "Q": 14, "R": 14, "S": 16}
+        for col, w in widths.items(): ws.column_dimensions[col].width = w
+
+        # Alturas (logos un poquito más grandes)
+        ws.row_dimensions[1].height = 8
+        ws.row_dimensions[3].height = 50  # ↑ más aire para logos
+        ws.row_dimensions[4].height = 22
+        ws.row_dimensions[5].height = 18
+        ws.row_dimensions[6].height = 14
+
+        # ------- Logos y títulos centrados (B3..S5) -------
+        try:
+            if _Path("logo_izq.png").exists():
+                img = XLImage("logo_izq.png")
+                target_h = 72  # ↑ un poco más grande
+                ratio = target_h / img.height
+                img.height = target_h
+                img.width  = int(img.width * ratio)
+                ws.add_image(img, "D3")
+
+            if _Path("logo_der.png").exists():
+                img2 = XLImage("logo_der.png")
+                target_h2 = 72  # ↑ un poco más grande
+                ratio2 = target_h2 / img2.height
+                img2.height = target_h2
+                img2.width  = int(img2.width * ratio2)
+                ws.add_image(img2, "O3")
+        except Exception:
+            pass
+
+        # Títulos
+        ws.merge_cells("B3:S3"); ws["B3"].value = "Modelo de Gestión Policial de Fuerza Pública"; ws["B3"].alignment=center; ws["B3"].font=h1_font
+        ws.merge_cells("B4:S4"); ws["B4"].value = "Lista de Asistencia & Minuta"; ws["B4"].alignment=center; ws["B4"].font=h1_font
+        ws.merge_cells("B5:S5"); ws["B5"].value = "Consecutivo:"; ws["B5"].alignment=center; ws["B5"].font=title_font
+
+        # Banda azul
+        ws.merge_cells("B6:S6"); ws["B6"].fill = PatternFill("solid", fgColor=azul_banda)
+
+        # Marco del bloque superior (borde superior en FILA 1)
+        outline_box(1, 2, 6, 19)
+
+        # ======= Encabezado con cuadrícula =======
+        ws.merge_cells(start_row=7, start_column=2, end_row=7, end_column=4)   # B7:D7
+        ws.merge_cells(start_row=7, start_column=5, end_row=7, end_column=9)   # E7:I7
+        ws.merge_cells(start_row=7, start_column=10, end_row=7, end_column=15) # J7:O7
+        ws.merge_cells(start_row=7, start_column=16, end_row=7, end_column=19) # P7:S7
+        ws["B7"].value = f"Fecha: {fecha.day} {mes_es} {fecha.year}"; ws["B7"].font = title_font; ws["B7"].alignment = left
+        ws["E7"].value = f"Lugar:  {lugar}" if lugar else "Lugar: "; ws["E7"].font = title_font; ws["E7"].alignment = left
+        ws["J7"].value = f"Hora Inicio: {hora_ini.strftime('%H:%M')}"; ws["J7"].alignment = center
+        ws["P7"].value = f"Hora Finalización: {hora_fin.strftime('%H:%M')}"; ws["P7"].alignment = center
+        box_all(7, 2, 7, 4); box_all(7, 5, 7, 9); box_all(7, 10, 7, 15); box_all(7, 16, 7, 19)
+
+        # Fila 8: Estrategia
+        ws.merge_cells(start_row=8, start_column=2, end_row=8, end_column=3)
+        ws.merge_cells(start_row=8, start_column=4, end_row=8, end_column=9)
+        ws["B8"].value = "Estrategia o Programa:"; ws["B8"].alignment = left
+        ws["D8"].value = estrategia; ws["D8"].alignment = left
+        box_all(8, 2, 8, 3); box_all(8, 4, 8, 9)
+
+        # Actividad (solo contorno)
+        ws.merge_cells(start_row=8, start_column=10, end_row=9, end_column=19)
+        ws["J8"].value = "ACTIVIDAD: Reunión Virtual de Seguimiento de líneas de acción, acciones estratégicas, indicadores y metas."
+        ws["J8"].alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+        outline_box(8, 10, 9, 19)
+
+        # Fila 9: Delegación
+        ws.merge_cells(start_row=9, start_column=2, end_row=9, end_column=3)
+        ws.merge_cells(start_row=9, start_column=4, end_row=9, end_column=9)
+        ws["B9"].value = "Dirección / Delegación Policial:"; ws["B9"].alignment = left
+        ws["D9"].value = delegacion; ws["D9"].alignment = Alignment(horizontal="center")
+        box_all(9, 2, 9, 3); box_all(9, 4, 9, 9)
+
+        # Encabezado de la tabla
+        ws["B10"].value = ""
+        ws["B10"].alignment = right
+        ws.merge_cells("C10:E11"); ws["C10"].value = "Nombre"
+
+        ws["F10"].value = "Cédula de Identidad"
+        ws["G10"].value = "Institución"
+        ws["H10"].value = "Cargo"
+        ws["I10"].value = "Teléfono"
+        ws.merge_cells("J10:L10"); ws["J10"].value = "Género"
+        ws.merge_cells("M10:O10"); ws["M10"].value = "Sexo (Hombre, Mujer o Intersex)"
+        ws.merge_cells("P10:R10"); ws["P10"].value = "Rango de Edad"
+        ws["S10"].value = "FIRMA"
+
+        for rng in ["C10:E11","J10:L10","M10:O10","P10:R10"]:
+            c = ws[rng.split(":")[0]]; c.font = th_font; c.alignment = center; c.fill = celda_fill
+        for cell in ["F10","G10","H10","I10","S10"]:
+            ws[cell].font = th_font; ws[cell].alignment = center; ws[cell].fill = celda_fill
+
+        ws["J11"], ws["K11"], ws["L11"] = "F", "M", "LGBTIQ+"
+        ws["M11"], ws["N11"], ws["O11"] = "H", "M", "I"
+        ws["P11"], ws["Q11"], ws["R11"] = "18 a 35 años", "36 a 64 años", "65 años o más"
+        for cell in ["J11","K11","L11","M11","N11","O11","P11","Q11","R11"]:
+            ws[cell].font = th_font; ws[cell].alignment = center; ws[cell].fill = celda_fill
+
+        for r in range(10, 12):
+            for c in range(2, 20):
+                ws.cell(row=r, column=c).border = border_all
+
+        # Congelar encabezado
+        ws.freeze_panes = "A12"
+
+        # Filas de asistencia
+        start_row = 12
+        for i, (_, row) in enumerate(rows_df.iterrows()):
+            r = start_row + i
+            ws[f"B{r}"].value = i + 1
+            ws[f"B{r}"].alignment = right
+
+            ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=5)
+            ws[f"C{r}"].value = str(row.get("Nombre",""))
+            ws[f"C{r}"].alignment = Alignment(wrap_text=True, horizontal="left", vertical="top")
+
+            ws[f"F{r}"].value = str(row.get("Cédula de Identidad",""))
+            ws[f"G{r}"].value = str(row.get("Institución",""))
+            ws[f"H{r}"].value = str(row.get("Cargo",""))
+            ws[f"I{r}"].value = str(row.get("Teléfono",""))
+
+            for col in ["J","K","L","M","N","O","P","Q","R"]:
+                ws[f"{col}{r}"].value = ""
+
+            g = (row.get("Género","") or "").strip()
+            if g == "F": ws[f"J{r}"].value = "X"
+            elif g == "M": ws[f"K{r}"].value = "X"
+            elif g == "LGBTIQ+": ws[f"L{r}"].value = "X"
+
+            s = (row.get("Sexo","") or "").strip()
+            if s == "H": ws[f"M{r}"].value = "X"
+            elif s == "M": ws[f"N{r}"].value = "X"
+            elif s == "I": ws[f"O{r}"].value = "X"
+
+            e = (row.get("Rango de Edad","") or "").strip()
+            if e.startswith("18"): ws[f"P{r}"].value = "X"
+            elif e.startswith("36"): ws[f"Q{r}"].value = "X"
+            elif e.startswith("65"): ws[f"R{r}"].value = "X"
+
+            ws[f"S{r}"].value = "Virtual"
+
+            for c in range(2, 20):
+                ws.cell(row=r, column=c).border = border_all
+
+        # ===== Anotaciones / Acuerdos (más bajos) =====
+        last_data_row = start_row + len(rows_df) - 1 if len(rows_df) > 0 else 11
+        notes_top = max(25, last_data_row + 2)
+        notes_height = 14  # ← antes 20; ahora menos alto
+
+        # Títulos de los cuadros
+        ws.merge_cells(start_row=notes_top, start_column=2, end_row=notes_top, end_column=10)  # B..J
+        ws.merge_cells(start_row=notes_top, start_column=12, end_row=notes_top, end_column=19) # L..S
+        ws[f"B{notes_top}"].value = "Anotaciones Generales."; ws[f"B{notes_top}"].alignment = center
+        ws[f"L{notes_top}"].value = "Acuerdos."; ws[f"L{notes_top}"].alignment = center
+        ws[f"B{notes_top}"].font = th_font; ws[f"L{notes_top}"].font = th_font
+        ws[f"B{notes_top}"].fill = celda_fill; ws[f"L{notes_top}"].fill = celda_fill
+
+        # Marcos exteriores de los cuadros (sin cuadriculas internas)
+        outline_box(notes_top+1, 2, notes_top+notes_height, 10)   # cuadro izq
+        outline_box(notes_top+1, 12, notes_top+notes_height, 19)  # cuadro der
+
+        # Rellenos de texto
+        ws.merge_cells(start_row=notes_top+1, start_column=2, end_row=notes_top+notes_height, end_column=10)
+        ws[f"B{notes_top+1}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
+        if anotaciones_txt.strip(): ws[f"B{notes_top+1}"].value = anotaciones_txt.strip()
+
+        ws.merge_cells(start_row=notes_top+1, start_column=12, end_row=notes_top+notes_height, end_column=19)
+        ws[f"L{notes_top+1}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
+        if acuerdos_txt.strip(): ws[f"L{notes_top+1}"].value = acuerdos_txt.strip()
+
+        # ===== Pie (ajustado a la nueva altura de los cuadros) =====
+        row_pie = notes_top + notes_height + 2
+        for r in range(row_pie, row_pie + 8):
+            for c in range(2, 20):
+                ws.cell(row=r, column=c).border = Border()  # sin bordes
+
+        ws.merge_cells(start_row=row_pie, start_column=2, end_row=row_pie, end_column=10)
+        ws[f"B{row_pie}"].value = f"Se Finaliza la Reunión a:   {hora_fin.strftime('%H:%M')}"
+        ws[f"B{row_pie}"].alignment = left
+
+        from openpyxl.utils import get_column_letter
+        row_firma = row_pie + 3
+        thin_line = Side(style="thin", color="000000")
+        sig_c1, sig_c2 = 4, 10  # D..J
+        ws.merge_cells(start_row=row_firma, start_column=sig_c1, end_row=row_firma, end_column=sig_c2)
+        for c in range(sig_c1, sig_c2 + 1):
+            ws.cell(row=row_firma, column=c).border = Border(bottom=thin_line)
+
+        ws.merge_cells(start_row=row_firma+1, start_column=sig_c1, end_row=row_firma+1, end_column=sig_c2)
+        ws[f"{get_column_letter(sig_c1)}{row_firma+1}"].value = "Nombre Completo y Firma"
+        ws[f"{get_column_letter(sig_c1)}{row_firma+1}"].alignment = Alignment(horizontal="center", wrap_text=False)
+
+        ws.merge_cells(start_row=row_firma+3, start_column=2, end_row=row_firma+3, end_column=10)
+        ws[f"B{row_firma+3}"].value = "Cargo:"
+        ws[f"B{row_firma+3}"].alignment = left
+
+        ws.merge_cells(start_row=row_firma+5, start_column=12, end_row=row_firma+5, end_column=19)
+        ws[f"L{row_firma+5}"].value = "Sello Policial"
+        ws[f"L{row_firma+5}"].alignment = Alignment(horizontal="right")
+
+        # Protección
+        ws.protection.sheet = True
+        ws.protection.formatColumns = False
+        ws.protection.formatRows = False
+        ws.protection.selectLockedCells = True
+        ws.protection.selectUnlockedCells = True
+
+        bio = BytesIO(); wb.save(bio); return bio.getvalue()
+
+    df_for_excel = fetch_all_df(include_id=False)
+    datos = df_for_excel.drop(columns=["Nº"]) if not df_for_excel.empty else df_for_excel
+    if st.button("📥 Generar y descargar Excel oficial", use_container_width=True, type="primary"):
+        xls_bytes = build_excel_oficial_single(
+            fecha_evento, lugar, hora_inicio, hora_fin, estrategia, delegacion, datos,
+            anotaciones, acuerdos
+        )
+        if xls_bytes:
+            st.download_button(
+                "⬇️ Descargar Excel (una sola hoja)",
+                data=xls_bytes,
+                file_name=f"Lista_Asistencia_Oficial_{date.today():%Y%m%d}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+
+
+
 
 
 
