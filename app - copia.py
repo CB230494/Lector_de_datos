@@ -169,7 +169,7 @@ if st.session_state.is_admin:
         estrategia = st.text_input("Estrategia o Programa", value="Estrategia Sembremos Seguridad")
     with col2:
         hora_inicio = st.time_input("Hora Inicio", value=time(9,0))
-        hora_fin = st.time_input("Hora Finalización", value=time(12,0))
+        hora_fin = st.time_input("Hora Finalización", value=time(12,10))
         delegacion = st.text_input("Dirección / Delegación Policial", value="")  # vacío
 
     st.markdown("### 📝 Anotaciones y Acuerdos (para el Excel)")
@@ -260,6 +260,7 @@ if st.session_state.is_admin:
         banda_fill = PatternFill("solid", fgColor=azul_banda)
         th_font    = Font(bold=True)
         title_font = Font(bold=True, size=12)
+        h1_font    = Font(bold=True, size=14)
         center     = Alignment(horizontal="center", vertical="center", wrap_text=True)
         left       = Alignment(horizontal="left",   vertical="center", wrap_text=True)
         thin       = Side(style="thin", color="000000")
@@ -272,7 +273,7 @@ if st.session_state.is_admin:
 
         wb = Workbook()
         ws = wb.active; ws.title = "Lista"
-        ws.sheet_view.showGridLines = False   # ocultar rejilla general; dibujamos bordes donde toca
+        ws.sheet_view.showGridLines = False   # ocultar rejilla general
 
         # Config de página A4 vertical
         ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
@@ -288,109 +289,119 @@ if st.session_state.is_admin:
                   "P": 14, "Q": 14, "R": 14, "S": 16}
         for col, w in widths.items(): ws.column_dimensions[col].width = w
 
-        # Banda azul
-        ws.merge_cells("B2:S2"); ws["B2"].fill = banda_fill
+        # Altura de filas para dar aire a los logos/títulos
+        ws.row_dimensions[3].height = 38
+        ws.row_dimensions[4].height = 22
+        ws.row_dimensions[5].height = 18
+        ws.row_dimensions[6].height = 14
 
-        # Logos (opcionales)
+        # ------- Logos y títulos centrados (B3..S5) -------
         try:
             if _Path("logo_izq.png").exists():
-                img = XLImage("logo_izq.png"); img.height = int(img.height*0.6); img.width = int(img.width*0.6)
+                img = XLImage("logo_izq.png")
+                target_h = 72  # altura visual del logo
+                ratio = target_h / img.height
+                img.height = target_h
+                img.width  = int(img.width * ratio)
                 ws.add_image(img, "B3")
             if _Path("logo_der.png").exists():
-                img2 = XLImage("logo_der.png"); img2.height = int(img2.height*0.6); img2.width = int(img2.width*0.6)
-                ws.add_image(img2, "Q3")
+                img2 = XLImage("logo_der.png")
+                target_h2 = 72
+                ratio2 = target_h2 / img2.height
+                img2.height = target_h2
+                img2.width  = int(img2.width * ratio2)
+                ws.add_image(img2, "Q3")  # extremo derecho
         except Exception:
             pass
 
-        # Títulos
-        ws.merge_cells("F3:N3"); ws["F3"].value = "Modelo de Gestión Policial de Fuerza Pública"; ws["F3"].alignment=center
-        ws.merge_cells("F4:N4"); ws["F4"].value = "Lista de Asistencia & Minuta"; ws["F4"].alignment=center
-        ws.merge_cells("F5:N5"); ws["F5"].value = "Consecutivo:"; ws["F5"].alignment=center
+        # Títulos centrados a lo ancho (B..S)
+        ws.merge_cells("B3:S3"); ws["B3"].value = "Modelo de Gestión Policial de Fuerza Pública"; ws["B3"].alignment=center; ws["B3"].font=h1_font
+        ws.merge_cells("B4:S4"); ws["B4"].value = "Lista de Asistencia & Minuta"; ws["B4"].alignment=center; ws["B4"].font=h1_font
+        ws.merge_cells("B5:S5"); ws["B5"].value = "Consecutivo:"; ws["B5"].alignment=center; ws["B5"].font=title_font
 
-        # ======= ENCABEZADO con CUADRICULAS =======
-        # Utilidad para aplicar borde a un rango (rellena todas las celdas de ese rango)
+        # Banda azul DEBAJO de logos/títulos (como en tu referencia)
+        ws.merge_cells("B6:S6"); ws["B6"].fill = banda_fill
+
+        # ======= ENCABEZADO con CUADRICULAS (comienza en fila 7) =======
         def _box_all(r1, c1, r2, c2):
             for r in range(r1, r2+1):
                 for c in range(c1, c2+1):
                     ws.cell(row=r, column=c).border = border_all
 
-        # Fila 6: cuatro cajas (Fecha / Lugar / Hora Inicio / Hora Finalización)
-        # B6:D6, E6:I6, J6:O6, P6:S6
-        ws.merge_cells(start_row=6, start_column=2, end_row=6, end_column=4)
-        ws.merge_cells(start_row=6, start_column=5, end_row=6, end_column=9)
-        ws.merge_cells(start_row=6, start_column=10, end_row=6, end_column=15)
-        ws.merge_cells(start_row=6, start_column=16, end_row=6, end_column=19)
-        ws["B6"].value = f"Fecha: {fecha.day} {mes_es} {fecha.year}"; ws["B6"].font = title_font; ws["B6"].alignment = left
-        ws["E6"].value = f"Lugar:  {lugar}" if lugar else "Lugar: "; ws["E6"].font = title_font; ws["E6"].alignment = left
-        ws["J6"].value = f"Hora Inicio: {hora_ini.strftime('%H:%M')}"; ws["J6"].alignment = center
-        ws["P6"].value = f"Hora Finalización: {hora_fin.strftime('%H:%M')}"; ws["P6"].alignment = center
-        _box_all(6, 2, 6, 4); _box_all(6, 5, 6, 9); _box_all(6, 10, 6, 15); _box_all(6, 16, 6, 19)
+        # Fila 7: Fecha / Lugar / Hora Inicio / Hora Finalización
+        ws.merge_cells(start_row=7, start_column=2, end_row=7, end_column=4)   # B7:D7
+        ws.merge_cells(start_row=7, start_column=5, end_row=7, end_column=9)   # E7:I7
+        ws.merge_cells(start_row=7, start_column=10, end_row=7, end_column=15) # J7:O7
+        ws.merge_cells(start_row=7, start_column=16, end_row=7, end_column=19) # P7:S7
+        ws["B7"].value = f"Fecha: {fecha.day} {mes_es} {fecha.year}"; ws["B7"].font = title_font; ws["B7"].alignment = left
+        ws["E7"].value = f"Lugar:  {lugar}" if lugar else "Lugar: "; ws["E7"].font = title_font; ws["E7"].alignment = left
+        ws["J7"].value = f"Hora Inicio: {hora_ini.strftime('%H:%M')}"; ws["J7"].alignment = center
+        ws["P7"].value = f"Hora Finalización: {hora_fin.strftime('%H:%M')}"; ws["P7"].alignment = center
+        _box_all(7, 2, 7, 4); _box_all(7, 5, 7, 9); _box_all(7, 10, 7, 15); _box_all(7, 16, 7, 19)
 
-        # Fila 7: Estrategia (dos cajas: etiqueta y valor) + ACTIVIDAD (J7:S8 con borde perimetral)
-        ws.merge_cells(start_row=7, start_column=2, end_row=7, end_column=3)   # B7:C7 etiqueta
-        ws.merge_cells(start_row=7, start_column=4, end_row=7, end_column=9)   # D7:I7 valor
-        ws["B7"].value = "Estrategia o Programa:"; ws["B7"].alignment = left
-        ws["D7"].value = estrategia; ws["D7"].alignment = left
-        _box_all(7, 2, 7, 3); _box_all(7, 4, 7, 9)
-
-        # ACTIVIDAD: caja grande J7:S8 (perímetro solamente)
-        ws.merge_cells(start_row=7, start_column=10, end_row=8, end_column=19)
-        ws["J7"].value = "ACTIVIDAD: Reunión Virtual de Seguimiento de líneas de acción, acciones estratégicas, indicadores y metas."
-        ws["J7"].alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
-
-        # dibujar solo el contorno de un rango
-        def _outline_box(r1, c1, r2, c2):
-            for c in range(c1, c2+1):
-                top = ws.cell(row=r1, column=c)
-                top.border = Border(top=thin, left=top.border.left, right=top.border.right, bottom=top.border.bottom)
-                bot = ws.cell(row=r2, column=c)
-                bot.border = Border(bottom=thin, left=bot.border.left, right=bot.border.right, top=bot.border.top)
-            for r in range(r1, r2+1):
-                left_cell = ws.cell(row=r, column=c1)
-                left_cell.border = Border(left=thin, top=left_cell.border.top, right=left_cell.border.right, bottom=left_cell.border.bottom)
-                right_cell = ws.cell(row=r, column=c2)
-                right_cell.border = Border(right=thin, top=right_cell.border.top, left=right_cell.border.left, bottom=right_cell.border.bottom)
-
-        _outline_box(7, 10, 8, 19)
-
-        # Fila 8: Delegación (dos cajas: etiqueta y valor)
-        ws.merge_cells(start_row=8, start_column=2, end_row=8, end_column=3)   # B8:C8 etiqueta
-        ws.merge_cells(start_row=8, start_column=4, end_row=8, end_column=9)   # D8:I8 valor
-        ws["B8"].value = "Dirección / Delegación Policial:"; ws["B8"].alignment = left
-        ws["D8"].value = delegacion; ws["D8"].alignment = Alignment(horizontal="center")
+        # Fila 8: Estrategia (B8:C8 etiqueta, D8:I8 valor)
+        ws.merge_cells(start_row=8, start_column=2, end_row=8, end_column=3)
+        ws.merge_cells(start_row=8, start_column=4, end_row=8, end_column=9)
+        ws["B8"].value = "Estrategia o Programa:"; ws["B8"].alignment = left
+        ws["D8"].value = estrategia; ws["D8"].alignment = left
         _box_all(8, 2, 8, 3); _box_all(8, 4, 8, 9)
 
-        # ======= ENCABEZADO tabla de asistencia =======
-        ws.merge_cells("B9:E10"); ws["B9"].value = "Nombre"
-        ws["F9"].value = "Cédula de Identidad"
-        ws["G9"].value = "Institución"
-        ws["H9"].value = "Cargo"
-        ws["I9"].value = "Teléfono"
-        ws.merge_cells("J9:L9"); ws["J9"].value = "Género"
-        ws.merge_cells("M9:O9"); ws["M9"].value = "Sexo (Hombre, Mujer o Intersex)"
-        ws.merge_cells("P9:R9"); ws["P9"].value = "Rango de Edad"
-        ws["S9"].value = "FIRMA"
+        # ACTIVIDAD: J8:S9 (dos filas) – solo contorno
+        def _outline_box(r1, c1, r2, c2):
+            for c in range(c1, c2+1):
+                t = ws.cell(row=r1, column=c)
+                t.border = Border(top=thin, left=t.border.left, right=t.border.right, bottom=t.border.bottom)
+                b = ws.cell(row=r2, column=c)
+                b.border = Border(bottom=thin, left=b.border.left, right=b.border.right, top=b.border.top)
+            for r in range(r1, r2+1):
+                l = ws.cell(row=r, column=c1)
+                l.border = Border(left=thin, top=l.border.top, right=l.border.right, bottom=l.border.bottom)
+                rgt = ws.cell(row=r, column=c2)
+                rgt.border = Border(right=thin, top=rgt.border.top, left=rgt.border.left, bottom=rgt.border.bottom)
 
-        for rng in ["B9:E10","J9:L9","M9:O9","P9:R9"]:
+        ws.merge_cells(start_row=8, start_column=10, end_row=9, end_column=19)
+        ws["J8"].value = "ACTIVIDAD: Reunión Virtual de Seguimiento de líneas de acción, acciones estratégicas, indicadores y metas."
+        ws["J8"].alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+        _outline_box(8, 10, 9, 19)
+
+        # Fila 9: Delegación (B9:C9 etiqueta, D9:I9 valor)
+        ws.merge_cells(start_row=9, start_column=2, end_row=9, end_column=3)
+        ws.merge_cells(start_row=9, start_column=4, end_row=9, end_column=9)
+        ws["B9"].value = "Dirección / Delegación Policial:"; ws["B9"].alignment = left
+        ws["D9"].value = delegacion; ws["D9"].alignment = Alignment(horizontal="center")
+        _box_all(9, 2, 9, 3); _box_all(9, 4, 9, 9)
+
+        # ======= Encabezados de la tabla (filas 10 y 11) =======
+        ws.merge_cells("B10:E11"); ws["B10"].value = "Nombre"
+        ws["F10"].value = "Cédula de Identidad"
+        ws["G10"].value = "Institución"
+        ws["H10"].value = "Cargo"
+        ws["I10"].value = "Teléfono"
+        ws.merge_cells("J10:L10"); ws["J10"].value = "Género"
+        ws.merge_cells("M10:O10"); ws["M10"].value = "Sexo (Hombre, Mujer o Intersex)"
+        ws.merge_cells("P10:R10"); ws["P10"].value = "Rango de Edad"
+        ws["S10"].value = "FIRMA"
+
+        for rng in ["B10:E11","J10:L10","M10:O10","P10:R10"]:
             c = ws[rng.split(":")[0]]; c.font = th_font; c.alignment = center; c.fill = celda_fill
-        for cell in ["F9","G9","H9","I9","S9"]:
+        for cell in ["F10","G10","H10","I10","S10"]:
             ws[cell].font = th_font; ws[cell].alignment = center; ws[cell].fill = celda_fill
 
-        ws["J10"], ws["K10"], ws["L10"] = "F", "M", "LGBTIQ+"
-        ws["M10"], ws["N10"], ws["O10"] = "H", "M", "I"
-        ws["P10"], ws["Q10"], ws["R10"] = "18 a 35 años", "36 a 64 años", "65 años o más"
-        for cell in ["J10","K10","L10","M10","N10","O10","P10","Q10","R10"]:
+        ws["J11"], ws["K11"], ws["L11"] = "F", "M", "LGBTIQ+"
+        ws["M11"], ws["N11"], ws["O11"] = "H", "M", "I"
+        ws["P11"], ws["Q11"], ws["R11"] = "18 a 35 años", "36 a 64 años", "65 años o más"
+        for cell in ["J11","K11","L11","M11","N11","O11","P11","Q11","R11"]:
             ws[cell].font = th_font; ws[cell].alignment = center; ws[cell].fill = celda_fill
 
-        # Bordes cabecera de la tabla
-        for r in range(9, 11):
+        # Bordes cabecera tabla
+        for r in range(10, 12):
             for c in range(2, 20):
                 ws.cell(row=r, column=c).border = border_all
 
-        ws.freeze_panes = "C11"
+        ws.freeze_panes = "C12"
 
-        # Filas de asistencia
-        start_row = 11
+        # Filas de asistencia (desde fila 12)
+        start_row = 12
         for i, (_, row) in enumerate(rows_df.iterrows()):
             r = start_row + i
             ws[f"B{r}"].value = i + 1; ws[f"B{r}"].alignment = center
@@ -421,8 +432,8 @@ if st.session_state.is_admin:
             ws[f"S{r}"].value = "Virtual"
             for c in range(2, 20): ws.cell(row=r, column=c).border = border_all
 
-        last_data_row = start_row + len(rows_df) - 1 if len(rows_df) > 0 else 10
-        notes_top = max(24, last_data_row + 2)
+        last_data_row = start_row + len(rows_df) - 1 if len(rows_df) > 0 else 11
+        notes_top = max(25, last_data_row + 2)
 
         # ---- Anotaciones / Acuerdos (marco exterior, sin cuadriculas) ----
         ws.merge_cells(start_row=notes_top, start_column=2, end_row=notes_top, end_column=10)  # B..J
@@ -441,8 +452,8 @@ if st.session_state.is_admin:
             for r in range(r1, r2+1):
                 l = ws.cell(row=r, column=c1)
                 l.border = Border(left=thin, top=l.border.top, right=l.border.right, bottom=l.border.bottom)
-                rr = ws.cell(row=r, column=c2)
-                rr.border = Border(right=thin, top=rr.border.top, left=rr.border.left, bottom=rr.border.bottom)
+                rgt = ws.cell(row=r, column=c2)
+                rgt.border = Border(right=thin, top=rgt.border.top, left=rgt.border.left, bottom=rgt.border.bottom)
 
         content_top    = notes_top + 1
         content_bottom = notes_top + 20
@@ -501,5 +512,4 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
-
 
