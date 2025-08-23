@@ -273,13 +273,12 @@ if st.session_state.is_admin:
     st.markdown("---")
     st.markdown("# 🛠️ Panel del Administrador")
 
-    # ==== Filtro por Delegación (NUEVO) ====
+    # ==== Filtro por Delegación ====
     df_all = fetch_all_df(include_rownum=True)
     if df_all.empty:
         st.info("Aún no hay registros guardados.")
         st.stop()
 
-    # Opciones basadas en lo que realmente existe en el Sheet
     delegs_existentes = sorted([d for d in df_all["Delegación"].dropna().unique() if str(d).strip()], key=str.casefold)
     filtro_opts = ["(Todas)"] + delegs_existentes
     sel_filtro = st.selectbox("Filtrar por Delegación", filtro_opts, index=0)
@@ -299,7 +298,6 @@ if st.session_state.is_admin:
     with col2:
         hora_inicio = st.time_input("Hora Inicio", value=time(9,0))
         hora_fin = st.time_input("Hora Finalización", value=time(12,10))
-        # Sugerimos el valor del filtro en el encabezado
         delegacion_hdr = st.text_input("Dirección / Delegación Policial", value=("" if sel_filtro == "(Todas)" else sel_filtro))
 
     st.markdown("### 📝 Anotaciones y Acuerdos (para el Excel)")
@@ -497,7 +495,9 @@ if st.session_state.is_admin:
         ws.merge_cells(start_row=9, start_column=2, end_row=9, end_column=3)
         ws.merge_cells(start_row=9, start_column=4, end_row=9, end_column=9)
         ws["B9"].value = "Dirección / Delegación Policial:"; ws["B9"].alignment = Alignment(horizontal="left", vertical="center")
-        ws["D9"].value = delegacion_hdr; ws["D9"].alignment = Alignment(horizontal="center", vertical="center")
+        ws["D9"].value = delegacion_hdr
+        # >>> CAMBIO SOLICITADO: alineado a la izquierda <<<
+        ws["D9"].alignment = Alignment(horizontal="left", vertical="center")
         box_all(9, 2, 9, 3); box_all(9, 4, 9, 9)
 
         # Encabezado de la tabla
@@ -668,5 +668,4 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
-
 
