@@ -382,9 +382,7 @@ if st.session_state.is_admin:
         try:
             from openpyxl import Workbook
             from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
-            from openpyxl.drawing.image import Image as XLImage
             from openpyxl.utils import get_column_letter
-            from pathlib import Path as _Path
         except Exception:
             st.error("Falta 'openpyxl' en requirements.txt")
             return b""
@@ -575,25 +573,35 @@ if st.session_state.is_admin:
         ws[f"L{notes_top+1}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
         if acuerdos_txt.strip(): ws[f"L{notes_top+1}"].value = acuerdos_txt.strip()
 
-        # Pie con firma (TEXTO SOBRE LA LÍNEA)
+        # Pie con firma: nombre ARRIBA de la línea, etiqueta ABAJO de la línea
         row_pie = notes_top + notes_height + 2
         ws.merge_cells(start_row=row_pie, start_column=2, end_row=row_pie, end_column=10)
         ws[f"B{row_pie}"].value = f"Se Finaliza la Reunión a:   {hora_fin.strftime('%H:%M')}"
         ws[f"B{row_pie}"].alignment = left
 
         row_firma = row_pie + 3
-        ws.row_dimensions[row_firma].height = 24  # un poco más alto para que el texto “toque” la línea
         thin_line = Side(style="thin", color="000000")
         sig_c1, sig_c2 = 4, 10  # D..J
+        # Línea de firma
         ws.merge_cells(start_row=row_firma, start_column=sig_c1, end_row=row_firma, end_column=sig_c2)
         for c in range(sig_c1, sig_c2 + 1):
             ws.cell(row=row_firma, column=c).border = Border(bottom=thin_line)
 
         from openpyxl.utils import get_column_letter
-        texto_firma = firmante.strip() if (firmante and firmante.strip()) else "Nombre Completo y Firma"
-        # Colocar el texto en la MISMA fila de la línea → “sobre la línea”
-        ws[f"{get_column_letter(sig_c1)}{row_firma}"].value = texto_firma
-        ws[f"{get_column_letter(sig_c1)}{row_firma}"].alignment = Alignment(horizontal="center", vertical="bottom", wrap_text=False)
+        col = get_column_letter(sig_c1)
+
+        # Nombre del firmante ARRIBA de la línea (fila anterior)
+        ws.merge_cells(start_row=row_firma-1, start_column=sig_c1, end_row=row_firma-1, end_column=sig_c2)
+        if firmante and firmante.strip():
+            ws[f"{col}{row_firma-1}"].value = firmante.strip()
+        else:
+            ws[f"{col}{row_firma-1}"].value = ""
+        ws[f"{col}{row_firma-1}"].alignment = Alignment(horizontal="center", vertical="bottom", wrap_text=False)
+
+        # Etiqueta ABAJO de la línea
+        ws.merge_cells(start_row=row_firma+1, start_column=sig_c1, end_row=row_firma+1, end_column=sig_c2)
+        ws[f"{col}{row_firma+1}"].value = "Nombre"
+        ws[f"{col}{row_firma+1}"].alignment = Alignment(horizontal="center", wrap_text=False)
 
         ws.protection.sheet = True
         ws.protection.selectLockedCells = True
@@ -615,6 +623,8 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+
+
 
 
 
