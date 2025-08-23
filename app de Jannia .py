@@ -9,48 +9,51 @@ from typing import List
 
 st.set_page_config(page_title="Asistencia – Registro y Admin", layout="wide")
 
-# ---------- DB (Google Sheets) ----------
+# ---------- Backend de datos: Google Sheets ----------
 import gspread
 try:
     from zoneinfo import ZoneInfo  # Python 3.9+
 except Exception:
     ZoneInfo = None
 
-# Apunta DIRECTO a tu hoja
+# Tu hoja:
 SHEET_ID = "1Xkj3lIoOT83VSBuQfN8eJkv2lT4EZEiG3jWhGri7LZU"
-SHEET_NAME = "Hoja 1"  # tu pestaña (según la captura)
+SHEET_NAME = "Hoja 1"
 
-# Estructura fija en la hoja
+# Estructura fija en la pestaña
 HEADER = ["id","created_at","nombre","cedula","institucion","cargo","telefono","genero","sexo","edad"]
 
+def _sa_key():
+    # Clave mínima para invalidar cache si cambias de Service Account
+    try:
+        sa = st.secrets["gcp_service_account"]
+        return sa.get("client_email","") + "|" + sa.get("project_id","")
+    except Exception:
+        return ""
+
 @st.cache_resource(show_spinner=False)
-def _get_ws():
+def _get_ws_cached(sheet_id: str, sheet_name: str, sa_key: str):
     if "gcp_service_account" not in st.secrets:
         raise RuntimeError("Falta el bloque [gcp_service_account] en .streamlit/secrets.toml")
-
     gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
-    sh = gc.open_by_key(SHEET_ID)
-
-    # Obtiene/crea la hoja
+    sh = gc.open_by_key(sheet_id)
     try:
-        ws = sh.worksheet(SHEET_NAME)
+        ws = sh.worksheet(sheet_name)
     except gspread.WorksheetNotFound:
-        ws = sh.add_worksheet(title=SHEET_NAME, rows=2000, cols=len(HEADER))
+        ws = sh.add_worksheet(title=sheet_name, rows=2000, cols=len(HEADER))
         ws.update("A1:J1", [HEADER])
-        try:
-            ws.freeze(rows=1)
-        except Exception:
-            pass
+        try: ws.freeze(rows=1)
+        except: pass
 
-    # Asegura encabezado correcto
     first_row = ws.row_values(1)
     if [h.strip().lower() for h in first_row] != HEADER:
         ws.update("A1:J1", [HEADER])
-        try:
-            ws.freeze(rows=1)
-        except Exception:
-            pass
+        try: ws.freeze(rows=1)
+        except: pass
     return ws
+
+def _get_ws():
+    return _get_ws_cached(SHEET_ID, SHEET_NAME, _sa_key())
 
 def init_db():
     _get_ws()  # Garantiza existencia y encabezado
@@ -63,7 +66,7 @@ def _now_local_str():
         return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 def _next_id(ws):
-    ids = ws.col_values(1)  # Columna A (incluye 'id' en A1)
+    ids = ws.col_values(1)  # Col A (incluye 'id')
     max_id = 0
     for v in ids[1:]:
         try:
@@ -89,7 +92,11 @@ def insert_row(row: dict):
         row.get("Sexo",""),
         row.get("Rango de Edad",""),
     ]
-    ws.append_row(payload, value_input_option="USER_ENTERED")
+    try:
+        ws.append_row(payload, value_input_option="USER_ENTERED")
+    except Exception as e:
+        st.error(f"No se pudo escribir en Google Sheets: {e}")
+        raise
 
 def fetch_all_df(include_id=True) -> pd.DataFrame:
     ws = _get_ws()
@@ -169,7 +176,6 @@ def delete_rows_by_ids(ids: List[int]):
 
 def delete_all_rows():
     ws = _get_ws()
-    # Borra datos manteniendo encabezado
     used_rows = len(ws.get_all_values())
     if used_rows >= 2:
         ws.batch_clear([f"A2:J{used_rows}"])
@@ -197,6 +203,21 @@ with st.sidebar:
         if st.button("Cerrar sesión"):
             st.session_state.is_admin = False
             st.rerun()
+
+# --- Indicador conexión Google Sheets (útil para diagnosticar) ---
+with st.sidebar:
+    st.markdown("---")
+    try:
+        _ws = _get_ws()
+        st.success("Google Sheets conectado ✅")
+        st.caption(f"Archivo: {_ws.spreadsheet.title}")
+        st.caption(f"Pestaña:  {_ws.title}")
+        st.caption(f"ID:       {_ws.spreadsheet.id}")
+        if st.button("🧪 Escribir fila de prueba"):
+            _ws.append_row(["999999","ping","","","","","","","",""], value_input_option="USER_ENTERED")
+            st.toast("Fila de prueba escrita. Revisa el Sheet.")
+    except Exception as e:
+        st.error(f"Google Sheets NO conectado ❌: {e}")
 
 # ---------- Contenido PÚBLICO ----------
 st.markdown("# 📋 Asistencia – Registro")
@@ -630,12 +651,6 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
-
-
-
-
-
-
 
 
 
