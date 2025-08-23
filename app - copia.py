@@ -288,8 +288,8 @@ if st.session_state.is_admin:
     else:
         df_view = df_all[df_all["Delegación"] == sel_filtro].reset_index(drop=True)
 
-    # Encabezado para Excel / PDF
-    st.markdown("### 🧾 Datos de encabezado (Excel / PDF)")
+    # Encabezado para Excel
+    st.markdown("### 🧾 Datos de encabezado (Excel)")
     col1, col2 = st.columns([1,1])
     with col1:
         fecha_evento = st.date_input("Fecha", value=date.today())
@@ -301,7 +301,7 @@ if st.session_state.is_admin:
         delegacion_hdr = st.text_input("Dirección / Delegación Policial", value=("" if sel_filtro == "(Todas)" else sel_filtro))
         firmante_nombre = st.text_input("Nombre de quien firma (opcional)", value="")
 
-    st.markdown("### 📝 Anotaciones y Acuerdos (para el Excel/PDF)")
+    st.markdown("### 📝 Anotaciones y Acuerdos (para el Excel)")
     a_col, b_col = st.columns(2)
     anotaciones = a_col.text_area("Anotaciones Generales", height=220, placeholder="Escribe las anotaciones generales…")
     acuerdos    = b_col.text_area("Acuerdos", height=220, placeholder="Escribe los acuerdos…")
@@ -368,8 +368,8 @@ if st.session_state.is_admin:
             else:
                 st.warning("Marca 'Confirmar vaciado total' para continuar.")
 
-    # ===== Descargas =====
-    st.markdown("### ⬇️ Descargas")
+    # ===== Descarga Excel =====
+    st.markdown("### ⬇️ Descarga")
     # Conjunto para exportar: SIEMPRE el filtrado actual
     df_for_export = df_view.drop(columns=["Nº","rownum"]) if not df_view.empty else df_view
 
@@ -444,8 +444,7 @@ if st.session_state.is_admin:
         ws.row_dimensions[5].height = 18
         ws.row_dimensions[6].height = 14
 
-        # (Logos opcionales omitidos)
-
+        # Títulos
         ws.merge_cells("B3:S3"); ws["B3"].value = "Modelo de Gestión Policial de Fuerza Pública"; ws["B3"].alignment=center; ws["B3"].font=h1_font
         ws.merge_cells("B4:S4"); ws["B4"].value = "Lista de Asistencia & Minuta"; ws["B4"].alignment=center; ws["B4"].font=h1_font
         ws.merge_cells("B5:S5"); ws["B5"].value = "Consecutivo:"; ws["B5"].alignment=center; ws["B5"].font=title_font
@@ -453,7 +452,7 @@ if st.session_state.is_admin:
 
         outline_box(1, 2, 6, 19)  # marco superior
 
-        # Encabezado superior con cuadrícula
+        # Encabezado superior
         ws.merge_cells(start_row=7, start_column=2, end_row=7, end_column=4)
         ws.merge_cells(start_row=7, start_column=5, end_row=7, end_column=9)
         ws.merge_cells(start_row=7, start_column=10, end_row=7, end_column=15)
@@ -477,7 +476,7 @@ if st.session_state.is_admin:
         ws["J8"].alignment = left
         outline_box(8, 10, 9, 19)
 
-        # Delegación Policial (alineado a la IZQUIERDA)
+        # Delegación Policial (IZQUIERDA)
         ws.merge_cells(start_row=9, start_column=2, end_row=9, end_column=3)
         ws.merge_cells(start_row=9, start_column=4, end_row=9, end_column=9)
         ws["B9"].value = "Dirección / Delegación Policial:"; ws["B9"].alignment = left
@@ -498,15 +497,15 @@ if st.session_state.is_admin:
         ws["S10"].value = "FIRMA"
 
         for rng in ["C10:E11","J10:L10","M10:O10","P10:R10"]:
-            c = ws[rng.split(":")[0]]; c.font = th_font; c.alignment = center; c.fill = celda_fill
+            c = ws[rng.split(":")[0]]; c.font = Font(bold=True); c.alignment = center; c.fill = celda_fill
         for cell in ["F10","G10","H10","I10","S10"]:
-            ws[cell].font = th_font; ws[cell].alignment = center; ws[cell].fill = celda_fill
+            ws[cell].font = Font(bold=True); ws[cell].alignment = center; ws[cell].fill = celda_fill
 
         ws["J11"], ws["K11"], ws["L11"] = "F", "M", "LGBTIQ+"
         ws["M11"], ws["N11"], ws["O11"] = "H", "M", "I"
         ws["P11"], ws["Q11"], ws["R11"] = "18 a 35 años", "36 a 64 años", "65 años o más"
         for cell in ["J11","K11","L11","M11","N11","O11","P11","Q11","R11"]:
-            ws[cell].font = th_font; ws[cell].alignment = center; ws[cell].fill = celda_fill
+            ws[cell].font = Font(bold=True); ws[cell].alignment = center; ws[cell].fill = celda_fill
 
         for r in range(10, 12):
             for c in range(2, 20):
@@ -562,7 +561,7 @@ if st.session_state.is_admin:
         ws.merge_cells(start_row=notes_top, start_column=12, end_row=notes_top, end_column=19)
         ws[f"B{notes_top}"].value = "Anotaciones Generales."; ws[f"B{notes_top}"].alignment = center
         ws[f"L{notes_top}"].value = "Acuerdos."; ws[f"L{notes_top}"].alignment = center
-        ws[f"B{notes_top}"].font = th_font; ws[f"L{notes_top}"].font = th_font
+        ws[f"B{notes_top}"].font = Font(bold=True); ws[f"L{notes_top}"].font = Font(bold=True)
         ws[f"B{notes_top}"].fill = celda_fill; ws[f"L{notes_top}"].fill = celda_fill
 
         outline_box(notes_top+1, 2, notes_top+notes_height, 10)
@@ -576,24 +575,25 @@ if st.session_state.is_admin:
         ws[f"L{notes_top+1}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
         if acuerdos_txt.strip(): ws[f"L{notes_top+1}"].value = acuerdos_txt.strip()
 
-        # Pie con firma
+        # Pie con firma (TEXTO SOBRE LA LÍNEA)
         row_pie = notes_top + notes_height + 2
         ws.merge_cells(start_row=row_pie, start_column=2, end_row=row_pie, end_column=10)
         ws[f"B{row_pie}"].value = f"Se Finaliza la Reunión a:   {hora_fin.strftime('%H:%M')}"
         ws[f"B{row_pie}"].alignment = left
 
         row_firma = row_pie + 3
+        ws.row_dimensions[row_firma].height = 24  # un poco más alto para que el texto “toque” la línea
         thin_line = Side(style="thin", color="000000")
-        sig_c1, sig_c2 = 4, 10  # D..J (bajo la línea)
+        sig_c1, sig_c2 = 4, 10  # D..J
         ws.merge_cells(start_row=row_firma, start_column=sig_c1, end_row=row_firma, end_column=sig_c2)
         for c in range(sig_c1, sig_c2 + 1):
             ws.cell(row=row_firma, column=c).border = Border(bottom=thin_line)
 
         from openpyxl.utils import get_column_letter
-        ws.merge_cells(start_row=row_firma+1, start_column=sig_c1, end_row=row_firma+1, end_column=sig_c2)
         texto_firma = firmante.strip() if (firmante and firmante.strip()) else "Nombre Completo y Firma"
-        ws[f"{get_column_letter(sig_c1)}{row_firma+1}"].value = texto_firma
-        ws[f"{get_column_letter(sig_c1)}{row_firma+1}"].alignment = Alignment(horizontal="center", wrap_text=False)
+        # Colocar el texto en la MISMA fila de la línea → “sobre la línea”
+        ws[f"{get_column_letter(sig_c1)}{row_firma}"].value = texto_firma
+        ws[f"{get_column_letter(sig_c1)}{row_firma}"].alignment = Alignment(horizontal="center", vertical="bottom", wrap_text=False)
 
         ws.protection.sheet = True
         ws.protection.selectLockedCells = True
@@ -601,152 +601,20 @@ if st.session_state.is_admin:
 
         bio = BytesIO(); wb.save(bio); return bio.getvalue()
 
-    # ---------- PDF (A4 horizontal, una hoja) ----------
-    def build_pdf_oficial_single(
-        fecha: date, lugar: str, hora_ini: time, hora_fin: time,
-        estrategia: str, delegacion_hdr: str, rows_df: pd.DataFrame,
-        anotaciones_txt: str, acuerdos_txt: str, firmante: str
-    ) -> bytes:
-        try:
-            from reportlab.lib.pagesizes import A4, landscape
-            from reportlab.lib import colors
-            from reportlab.pdfgen import canvas
-            from reportlab.platypus import Table, TableStyle
-        except Exception:
-            st.error("Falta 'reportlab' en requirements.txt")
-            return b""
-
-        buf = BytesIO()
-        page_w, page_h = landscape(A4)
-        c = canvas.Canvas(buf, pagesize=(page_w, page_h))
-
-        margin = 28
-        x0, y0 = margin, margin
-        width, height = page_w - 2*margin, page_h - 2*margin
-
-        # Banda superior
-        c.setFillColorRGB(0.12, 0.23, 0.45)  # azul
-        c.rect(x0, y0 + height - 18, width, 18, fill=1, stroke=0)
-        c.setFillColor(colors.black)
-
-        # Encabezados de texto
-        MESES_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto",
-                    "septiembre","octubre","noviembre","diciembre"]
-        mes_es = MESES_ES[fecha.month-1]
-
-        y = y0 + height - 35
-        c.setFont("Helvetica-Bold", 16)
-        c.drawCentredString(x0 + width/2, y + 24, "Lista de Asistencia & Minuta")
-        c.setFont("Helvetica-Bold", 12)
-        c.drawCentredString(x0 + width/2, y + 42, "Modelo de Gestión Policial de Fuerza Pública")
-        c.setFont("Helvetica", 10)
-
-        c.drawString(x0, y, f"Fecha: {fecha.day} {mes_es} {fecha.year}")
-        c.drawString(x0 + 250, y, f"Lugar: {lugar}")
-        c.drawRightString(x0 + width/2 + 150, y, f"Hora Inicio: {hora_ini.strftime('%H:%M')}")
-        c.drawRightString(x0 + width, y, f"Hora Finalización: {hora_fin.strftime('%H:%M')}")
-
-        y -= 16
-        c.drawString(x0, y, "Estrategia o Programa:")
-        c.drawString(x0 + 140, y, estrategia)
-
-        y -= 16
-        c.drawString(x0, y, "Dirección / Delegación Policial:")
-        c.drawString(x0 + 180, y, delegacion_hdr)
-
-        # Tabla
-        data = []
-        head = [
-            "Nº","Nombre","Cédula de Identidad","Delegación","Cargo","Teléfono",
-            "F","M","LGBTIQ+","H","M","I","18-35","36-64","65+","FIRMA"
-        ]
-        data.append(head)
-
-        for i, (_, row) in enumerate(rows_df.iterrows(), start=1):
-            g = (row.get("Género","") or "").strip()
-            s = (row.get("Sexo","") or "").strip()
-            e = (row.get("Rango de Edad","") or "").strip()
-            gf = "X" if g == "F" else ""
-            gm = "X" if g == "M" else ""
-            gl = "X" if g == "LGBTIQ+" else ""
-            sh = "X" if s == "H" else ""
-            sm = "X" if s == "M" else ""
-            si = "X" if s == "I" else ""
-            r1 = "X" if e.startswith("18") else ""
-            r2 = "X" if e.startswith("36") else ""
-            r3 = "X" if e.startswith("65") else ""
-            data.append([
-                i,
-                str(row.get("Nombre","")),
-                str(row.get("Cédula de Identidad","")),
-                str(row.get("Delegación","")),
-                str(row.get("Cargo","")),
-                str(row.get("Teléfono","")),
-                gf, gm, gl, sh, sm, si, r1, r2, r3, "Virtual"
-            ])
-
-        # Anchos de columnas (suma aprox. al ancho disponible)
-        col_widths = [
-            24, 140, 90, 100, 90, 70, 16, 16, 40, 16, 16, 16, 40, 40, 32, 50
-        ]
-        table_top = y - 18
-        table = Table(data, colWidths=col_widths, repeatRows=1)
-        style = TableStyle([
-            ("GRID",(0,0),(-1,-1),0.5,colors.black),
-            ("BACKGROUND",(0,0),(-1,0),colors.HexColor("#D9D9D9")),
-            ("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),
-            ("ALIGN",(0,0),(0,-1),"RIGHT"),
-            ("ALIGN",(1,0),(5,0),"CENTER"),
-            ("ALIGN",(6,0),(-1,0),"CENTER"),
-            ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
-        ])
-        table.setStyle(style)
-        w_table = sum(col_widths)
-        # Dibujar tabla (posición simple; si hay muchas filas, la tabla se contrae hacia arriba)
-        table.wrapOn(c, w_table, 400)
-        table.drawOn(c, x0, table_top - 16 - 18*len(data))
-
-        # Firma inferior
-        y_sig = y0 + 40
-        c.line(x0 + 120, y_sig, x0 + width - 120, y_sig)
-        texto_firma = firmante.strip() if (firmante and firmante.strip()) else "Nombre Completo y Firma"
-        c.setFont("Helvetica", 11)
-        c.drawCentredString(x0 + width/2, y_sig - 14, texto_firma)
-
-        c.showPage()
-        c.save()
-        return buf.getvalue()
-
-    # Botones de descarga
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("📥 Generar Excel oficial", use_container_width=True, type="primary"):
-            xls_bytes = build_excel_oficial_single(
-                fecha_evento, lugar, hora_inicio, hora_fin, estrategia, delegacion_hdr,
-                df_for_export, anotaciones, acuerdos, firmante_nombre
+    # Botón de descarga Excel
+    if st.button("📥 Generar Excel oficial", use_container_width=True, type="primary"):
+        xls_bytes = build_excel_oficial_single(
+            fecha_evento, lugar, hora_inicio, hora_fin, estrategia, delegacion_hdr,
+            df_for_export, anotaciones, acuerdos, firmante_nombre
+        )
+        if xls_bytes:
+            st.download_button(
+                "⬇️ Descargar Excel (una sola hoja)",
+                data=xls_bytes,
+                file_name=f"Lista_Asistencia_Oficial_{date.today():%Y%m%d}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
             )
-            if xls_bytes:
-                st.download_button(
-                    "⬇️ Descargar Excel (una sola hoja)",
-                    data=xls_bytes,
-                    file_name=f"Lista_Asistencia_Oficial_{date.today():%Y%m%d}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-    with c2:
-        if st.button("🖨️ Generar PDF (A4 horizontal)", use_container_width=True):
-            pdf_bytes = build_pdf_oficial_single(
-                fecha_evento, lugar, hora_inicio, hora_fin, estrategia, delegacion_hdr,
-                df_for_export, anotaciones, acuerdos, firmante_nombre
-            )
-            if pdf_bytes:
-                st.download_button(
-                    "⬇️ Descargar PDF",
-                    data=pdf_bytes,
-                    file_name=f"Lista_Asistencia_Oficial_{date.today():%Y%m%d}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
 
 
 
