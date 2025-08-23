@@ -45,6 +45,7 @@ def _get_ws_cached(sheet_id: str, sheet_name: str, sa_key: str):
         try: ws.freeze(rows=1)
         except: pass
 
+    # Asegura encabezado correcto
     first_row = ws.row_values(1)
     if [h.strip().lower() for h in first_row] != HEADER:
         ws.update("A1:J1", [HEADER])
@@ -92,11 +93,7 @@ def insert_row(row: dict):
         row.get("Sexo",""),
         row.get("Rango de Edad",""),
     ]
-    try:
-        ws.append_row(payload, value_input_option="USER_ENTERED")
-    except Exception as e:
-        st.error(f"No se pudo escribir en Google Sheets: {e}")
-        raise
+    ws.append_row(payload, value_input_option="USER_ENTERED")
 
 def fetch_all_df(include_id=True) -> pd.DataFrame:
     ws = _get_ws()
@@ -180,8 +177,12 @@ def delete_all_rows():
     if used_rows >= 2:
         ws.batch_clear([f"A2:J{used_rows}"])
 
-# Inicializa backend
-init_db()
+# Inicializa backend (si falla, muestra error claro y detiene)
+try:
+    init_db()
+except Exception as e:
+    st.error("Error conectando a Google Sheets. Verifica permisos y secrets.")
+    st.stop()
 
 # ---------- Login admin en la barra lateral ----------
 if "is_admin" not in st.session_state:
@@ -203,21 +204,6 @@ with st.sidebar:
         if st.button("Cerrar sesión"):
             st.session_state.is_admin = False
             st.rerun()
-
-# --- Indicador conexión Google Sheets (útil para diagnosticar) ---
-with st.sidebar:
-    st.markdown("---")
-    try:
-        _ws = _get_ws()
-        st.success("Google Sheets conectado ✅")
-        st.caption(f"Archivo: {_ws.spreadsheet.title}")
-        st.caption(f"Pestaña:  {_ws.title}")
-        st.caption(f"ID:       {_ws.spreadsheet.id}")
-        if st.button("🧪 Escribir fila de prueba"):
-            _ws.append_row(["999999","ping","","","","","","","",""], value_input_option="USER_ENTERED")
-            st.toast("Fila de prueba escrita. Revisa el Sheet.")
-    except Exception as e:
-        st.error(f"Google Sheets NO conectado ❌: {e}")
 
 # ---------- Contenido PÚBLICO ----------
 st.markdown("# 📋 Asistencia – Registro")
@@ -651,6 +637,8 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+
+
 
 
 
