@@ -16,7 +16,7 @@ try:
 except Exception:
     ZoneInfo = None
 
-# Tu hoja (Asistencia Rivera)  <<< ID CORREGIDO >>>
+# ID de tu Google Sheet (Asistencia Rivera)
 SHEET_ID = "1lhREae4X-RcbeMmjSpT3CRJZo5enizyHmZxazzDGI-4"
 SHEET_NAME = "Hoja 1"
 
@@ -101,7 +101,7 @@ def _now_local_str():
 def insert_row(row: dict):
     ws = _get_ws()
     telefono = row.get("Teléfono","")
-    if telefono and not str(telefono).startswith("'"):
+    if telefono and not str(telefono).startswith("'"):  # conserva ceros iniciales
         telefono = "'" + str(telefono)
 
     payload = [
@@ -573,7 +573,7 @@ if st.session_state.is_admin:
         ws[f"L{notes_top+1}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
         if acuerdos_txt.strip(): ws[f"L{notes_top+1}"].value = acuerdos_txt.strip()
 
-        # Pie con firma: nombre ARRIBA de la línea, etiqueta ABAJO de la línea
+        # Pie con firma: nombre SOBRE la línea y etiqueta "Nombre" debajo
         row_pie = notes_top + notes_height + 2
         ws.merge_cells(start_row=row_pie, start_column=2, end_row=row_pie, end_column=10)
         ws[f"B{row_pie}"].value = f"Se Finaliza la Reunión a:   {hora_fin.strftime('%H:%M')}"
@@ -582,6 +582,7 @@ if st.session_state.is_admin:
         row_firma = row_pie + 3
         thin_line = Side(style="thin", color="000000")
         sig_c1, sig_c2 = 4, 10  # D..J
+
         # Línea de firma
         ws.merge_cells(start_row=row_firma, start_column=sig_c1, end_row=row_firma, end_column=sig_c2)
         for c in range(sig_c1, sig_c2 + 1):
@@ -590,15 +591,15 @@ if st.session_state.is_admin:
         from openpyxl.utils import get_column_letter
         col = get_column_letter(sig_c1)
 
-        # Nombre del firmante ARRIBA de la línea (fila anterior)
-        ws.merge_cells(start_row=row_firma-1, start_column=sig_c1, end_row=row_firma-1, end_column=sig_c2)
-        if firmante and firmante.strip():
-            ws[f"{col}{row_firma-1}"].value = firmante.strip()
-        else:
-            ws[f"{col}{row_firma-1}"].value = ""
-        ws[f"{col}{row_firma-1}"].alignment = Alignment(horizontal="center", vertical="bottom", wrap_text=False)
+        # Altura para que el texto “toque” la línea
+        ws.row_dimensions[row_firma].height = 24
 
-        # Etiqueta ABAJO de la línea
+        # Nombre SOBRE la línea (misma fila de la línea, alineado abajo)
+        texto_firma = firmante.strip() if (firmante and firmante.strip()) else ""
+        ws[f"{col}{row_firma}"].value = texto_firma
+        ws[f"{col}{row_firma}"].alignment = Alignment(horizontal="center", vertical="bottom", wrap_text=False)
+
+        # Etiqueta DEBAJO de la línea
         ws.merge_cells(start_row=row_firma+1, start_column=sig_c1, end_row=row_firma+1, end_column=sig_c2)
         ws[f"{col}{row_firma+1}"].value = "Nombre"
         ws[f"{col}{row_firma+1}"].alignment = Alignment(horizontal="center", wrap_text=False)
@@ -623,7 +624,6 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
-
 
 
 
