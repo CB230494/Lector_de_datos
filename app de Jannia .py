@@ -20,8 +20,8 @@ except Exception:
 SHEET_ID = "1Xkj3lIoOT83VSBuQfN8eJkv2lT4EZEiG3jWhGri7LZU"
 SHEET_NAME = "Hoja 1"
 
-# Estructura fija en la pestaña
-HEADER = ["id","created_at","nombre","cedula","institucion","cargo","telefono","genero","sexo","edad"]
+# NUEVO: estructura final (sin id/created_at)
+HEADER = ["nombre","cedula","delegacion","cargo","telefono","genero","sexo","edad"]  # 8 columnas
 
 def _sa_key():
     # Clave mínima para invalidar cache si cambias de Service Account
@@ -37,27 +37,40 @@ def _get_ws_cached(sheet_id: str, sheet_name: str, sa_key: str):
         raise RuntimeError("Falta el bloque [gcp_service_account] en .streamlit/secrets.toml")
     gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
     sh = gc.open_by_key(sheet_id)
+
+    # Obtiene/crea la pestaña
     try:
         ws = sh.worksheet(sheet_name)
     except gspread.WorksheetNotFound:
         ws = sh.add_worksheet(title=sheet_name, rows=2000, cols=len(HEADER))
-        ws.update("A1:J1", [HEADER])
+        ws.update("A1:H1", [HEADER])
         try: ws.freeze(rows=1)
         except: pass
 
-    # Asegura encabezado correcto
-    first_row = ws.row_values(1)
-    if [h.strip().lower() for h in first_row] != HEADER:
-        ws.update("A1:J1", [HEADER])
+    # --- Migración automática ---
+    # Si aún existen columnas viejas (id/created_at), se eliminan A y B.
+    try:
+        first_row = [h.strip().lower() for h in ws.row_values(1)]
+        if len(first_row) >= 2 and first_row[0] == "id" and first_row[1] == "created_at":
+            ws.delete_columns(1, 2)  # borra columnas A..B
+    except Exception:
+        pass
+
+    # Asegura encabezado exacto (y renombra 'institucion' -> 'delegacion')
+    first_row = [h.strip().lower() for h in ws.row_values(1)]
+    # Si la cabecera no coincide con la lista final, la reescribimos
+    if first_row != HEADER:
+        ws.update("A1:H1", [HEADER])
         try: ws.freeze(rows=1)
         except: pass
+
     return ws
 
 def _get_ws():
     return _get_ws_cached(SHEET_ID, SHEET_NAME, _sa_key())
 
 def init_db():
-    _get_ws()  # Garantiza existencia y encabezado
+    _get_ws()  # Garantiza existencia y encabezado/migración
 
 def _now_local_str():
     try:
@@ -66,85 +79,79 @@ def _now_local_str():
     except Exception:
         return datetime.now().strftime("%Y-%m-%d %H:%M")
 
-def _next_id(ws):
-    ids = ws.col_values(1)  # Col A (incluye 'id')
-    max_id = 0
-    for v in ids[1:]:
-        try:
-            i = int(str(v).strip())
-            if i > max_id:
-                max_id = i
-        except Exception:
-            continue
-    return max_id + 1
-
+# ---------- CRUD ----------
 def insert_row(row: dict):
     ws = _get_ws()
-    new_id = _next_id(ws)
+    # Teléfono como texto para no perder ceros
+    telefono = row.get("Teléfono","")
+    if telefono and not str(telefono).startswith("'"):
+        telefono = "'" + str(telefono)
+
     payload = [
-        str(new_id),
-        _now_local_str(),
         row.get("Nombre",""),
         row.get("Cédula de Identidad",""),
         row.get("Delegación",""),
         row.get("Cargo",""),
-        row.get("Teléfono",""),
+        telefono,
         row.get("Género",""),
         row.get("Sexo",""),
         row.get("Rango de Edad",""),
     ]
     ws.append_row(payload, value_input_option="USER_ENTERED")
 
-def fetch_all_df(include_id=True) -> pd.DataFrame:
+def fetch_all_df(include_rownum=True) -> pd.DataFrame:
+    """Lee todo y añade 'rownum' (número de fila real en el Sheet) para editar/borrar."""
     ws = _get_ws()
-    records = ws.get_all_records(value_render_option="UNFORMATTED_VALUE", head=1, default_blank="")
-    df = pd.DataFrame(records)
-    if df.empty:
+    values = ws.get_all_values()
+    if len(values) < 2:
         cols = ["Nº","Nombre","Cédula de Identidad","Delegación","Cargo","Teléfono","Género","Sexo","Rango de Edad"]
-        if include_id: cols.insert(1, "id")
+        if include_rownum: cols.insert(1, "rownum")
         return pd.DataFrame(columns=cols)
 
-    if "id" in df.columns:
-        df["id"] = pd.to_numeric(df["id"], errors="coerce").astype("Int64")
+    header = [h.strip().lower() for h in values[0]]
+    data_rows = values[1:]
 
-    df = df.rename(columns={
+    # Normaliza encabezados por si el sheet tuviera variaciones
+    name_map = {
         "nombre":"Nombre",
         "cedula":"Cédula de Identidad",
-        "institucion":"Delegación",
+        "delegacion":"Delegación",
         "cargo":"Cargo",
         "telefono":"Teléfono",
         "genero":"Género",
         "sexo":"Sexo",
         "edad":"Rango de Edad",
-    })
+    }
 
-    cols_order = ["id","Nombre","Cédula de Identidad","Delegación","Cargo","Teléfono","Género","Sexo","Rango de Edad"]
+    # Construimos registros con su rownum (fila real en el sheet)
+    records = []
+    for idx, row in enumerate(data_rows, start=2):  # fila 2 es la primera de datos
+        rec = {}
+        for j, key in enumerate(header):
+            if key in name_map:
+                rec[name_map[key]] = row[j] if j < len(row) else ""
+        rec["rownum"] = idx
+        records.append(rec)
+
+    df = pd.DataFrame(records)
+    if df.empty:
+        cols = ["Nº","Nombre","Cédula de Identidad","Delegación","Cargo","Teléfono","Género","Sexo","Rango de Edad"]
+        if include_rownum: cols.insert(1, "rownum")
+        return pd.DataFrame(columns=cols)
+
+    # Orden y columnas esperadas
+    cols_order = ["rownum","Nombre","Cédula de Identidad","Delegación","Cargo","Teléfono","Género","Sexo","Rango de Edad"]
     df = df[[c for c in cols_order if c in df.columns]]
 
+    # Nº visual
     df.insert(0, "Nº", range(1, len(df)+1))
-    if not include_id and "id" in df.columns:
-        df = df.drop(columns=["id"])
+    if not include_rownum and "rownum" in df.columns:
+        df = df.drop(columns=["rownum"])
     return df
 
-def _rownum_by_id(ws, row_id:int):
-    col = ws.col_values(1)
-    target = str(row_id)
-    for idx, val in enumerate(col, start=1):
-        if idx == 1:  # header
-            continue
-        if str(val).strip() == target:
-            return idx
-    return None
-
-def update_row_by_id(row_id:int, row:dict):
+def update_row_by_rownum(rownum:int, row:dict):
     ws = _get_ws()
-    r = _rownum_by_id(ws, row_id)
-    if not r:
-        return
-    created_val = ws.cell(r, 2).value or _now_local_str()
     payload = [
-        str(row_id),
-        created_val,
         row.get("Nombre",""),
         row.get("Cédula de Identidad",""),
         row.get("Delegación",""),
@@ -154,20 +161,12 @@ def update_row_by_id(row_id:int, row:dict):
         row.get("Sexo",""),
         row.get("Rango de Edad",""),
     ]
-    ws.update(f"A{r}:J{r}", [payload], value_input_option="USER_ENTERED")
+    ws.update(f"A{rownum}:H{rownum}", [payload], value_input_option="USER_ENTERED")
 
-def delete_rows_by_ids(ids: List[int]):
-    if not ids:
+def delete_rows_by_rownums(rownums: List[int]):
+    if not rownums:
         return
     ws = _get_ws()
-    col = ws.col_values(1)
-    id_set = {str(i) for i in ids}
-    rownums = []
-    for idx, val in enumerate(col, start=1):
-        if idx == 1:
-            continue
-        if str(val).strip() in id_set:
-            rownums.append(idx)
     for r in sorted(rownums, reverse=True):
         ws.delete_rows(r)
 
@@ -175,12 +174,12 @@ def delete_all_rows():
     ws = _get_ws()
     used_rows = len(ws.get_all_values())
     if used_rows >= 2:
-        ws.batch_clear([f"A2:J{used_rows}"])
+        ws.batch_clear([f"A2:H{used_rows}"])
 
 # Inicializa backend (si falla, muestra error claro y detiene)
 try:
     init_db()
-except Exception as e:
+except Exception:
     st.error("Error conectando a Google Sheets. Verifica permisos y secrets.")
     st.stop()
 
@@ -212,7 +211,7 @@ with st.form("form_asistencia_publico", clear_on_submit=True):
     c1, c2, c3 = st.columns([1.2, 1, 1])
     nombre      = c1.text_input("Nombre")
     cedula      = c2.text_input("Cédula de Identidad")
-    institucion = c3.text_input("Delegación")  # ← antes: Institución
+    institucion = c3.text_input("Delegación")  # ← ahora se guarda en 'delegacion'
 
     c4, c5 = st.columns([1, 1])
     cargo    = c4.text_input("Cargo")
@@ -243,7 +242,7 @@ with st.form("form_asistencia_publico", clear_on_submit=True):
             st.success("Registro guardado.")
 
 st.markdown("### 📥 Registros recibidos")
-df_pub = fetch_all_df(include_id=False)
+df_pub = fetch_all_df(include_rownum=False)
 if not df_pub.empty:
     st.dataframe(
         df_pub[["Nº","Nombre","Cédula de Identidad","Delegación","Cargo","Teléfono","Género","Sexo","Rango de Edad"]],
@@ -267,7 +266,7 @@ if st.session_state.is_admin:
     with col2:
         hora_inicio = st.time_input("Hora Inicio", value=time(9,0))
         hora_fin = st.time_input("Hora Finalización", value=time(12,10))
-        delegacion = st.text_input("Dirección / Delegación Policial", value="")
+        delegacion_hdr = st.text_input("Dirección / Delegación Policial", value="")
 
     st.markdown("### 📝 Anotaciones y Acuerdos (para el Excel)")
     a_col, b_col = st.columns(2)
@@ -275,7 +274,7 @@ if st.session_state.is_admin:
     acuerdos    = b_col.text_area("Acuerdos", height=220, placeholder="Escribe los acuerdos…")
 
     st.markdown("### 👥 Registros y edición")
-    df_all = fetch_all_df(include_id=True)
+    df_all = fetch_all_df(include_rownum=True)
 
     if df_all.empty:
         st.info("Aún no hay registros guardados.")
@@ -314,7 +313,7 @@ if st.session_state.is_admin:
                 row_new  = edited.loc[idx]
                 fields = ["Nombre","Cédula de Identidad","Delegación","Cargo","Teléfono","Género","Sexo","Rango de Edad"]
                 if any(str(row_orig[f]) != str(row_new[f]) for f in fields):
-                    update_row_by_id(int(row_orig["id"]), {f: row_new[f] for f in fields})
+                    update_row_by_rownum(int(row_orig["rownum"]), {f: row_new[f] for f in fields})
                     changes += 1
             st.success(f"Se guardaron {changes} cambio(s).") if changes else st.info("No hay cambios para guardar.")
             if changes:
@@ -322,10 +321,10 @@ if st.session_state.is_admin:
 
         if btn_delete:
             idx_sel = edited.index[edited["Seleccionar"] == True].tolist()
-            ids = df_all.iloc[idx_sel]["id"].tolist()
-            if ids:
-                delete_rows_by_ids(ids)
-                st.success(f"Eliminadas {len(ids)} fila(s).")
+            rownums = df_all.iloc[idx_sel]["rownum"].tolist()
+            if rownums:
+                delete_rows_by_rownums(rownums)
+                st.success(f"Eliminadas {len(rownums)} fila(s).")
                 st.rerun()
             else:
                 st.info("No hay filas seleccionadas para eliminar.")
@@ -622,11 +621,11 @@ if st.session_state.is_admin:
 
         bio = BytesIO(); wb.save(bio); return bio.getvalue()
 
-    df_for_excel = fetch_all_df(include_id=False)
+    df_for_excel = fetch_all_df(include_rownum=False)
     datos = df_for_excel.drop(columns=["Nº"]) if not df_for_excel.empty else df_for_excel
     if st.button("📥 Generar y descargar Excel oficial", use_container_width=True, type="primary"):
         xls_bytes = build_excel_oficial_single(
-            fecha_evento, lugar, hora_inicio, hora_fin, estrategia, delegacion, datos,
+            fecha_evento, lugar, hora_inicio, hora_fin, estrategia, delegacion_hdr, datos,
             anotaciones, acuerdos
         )
         if xls_bytes:
@@ -637,8 +636,6 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
-
-
 
 
 
