@@ -4,88 +4,197 @@
 import streamlit as st
 import pandas as pd
 from io import BytesIO
-from datetime import date, time
-import sqlite3
-from pathlib import Path
+from datetime import date, time, datetime
+from typing import List
 
 st.set_page_config(page_title="Asistencia – Registro y Admin", layout="wide")
 
-# ---------- DB (SQLite) ----------
-DB_PATH = "asistencia.db"
+# ---------- Backend de datos: Google Sheets ----------
+import gspread
+try:
+    from zoneinfo import ZoneInfo  # Python 3.9+
+except Exception:
+    ZoneInfo = None
 
-def get_conn():
-    Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
-    return sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
+# Tu hoja (Asistencia Rivera)
+SHEET_ID = "1lhREae4X-RcbeMmjSpT3CRJZo5enizyHmZxazzDGl-4"
+SHEET_NAME = "Hoja 1"
+
+# Estructura final (sin id/created_at)
+HEADER = ["nombre","cedula","delegacion","cargo","telefono","genero","sexo","edad"]  # 8 columnas
+
+# Catálogo de delegaciones (usado en el formulario público)
+DELEGACIONES = [
+    "Carmen","Merced","Hospital","Catedral","San Sebastián","Hatillo",
+    "Zapote / San Francisco de dos Rios","Pavas","Uruca / Mata Redonda",
+    "Curridabat","Montes de Oca","Goicoechea","Moravia","Tibás","Coronado",
+    "Desamparados Norte","Desamparados Sur","Aserrí","Acosta","Alajuelita",
+    "Escazu","Santa Ana","Mora","Puriscal","Turrubares",
+    "Alajuela Sur","Alajuela Norte","San Ramón","Grecia","San Mateo",
+    "Atenas","Naranjo","Palmares","Poas","Orotina","Sarchí",
+    "Cartago","Paraíso","La Unión","Jiménez","Turrialba","Alvarado","Oreamuno","El Guarco",
+    "Tarrazú","Dota","León Cortéz",
+    "Guadalupe","Heredia","Barva","Santo Domingo","Santa Barbara","San Rafael","San Isidro","Belén","Flores","San Pablo",
+    "Liberia","Nicoya","Santa Cruz","Bagaces","Carrillo","Cañas","Abangares","Tilarán","Nandayure","Hojancha","La Cruz",
+    "Puntarenas","Esparza","Montes de Oro","Quepos","Parrita","Garabito","Paquera","Chomes",
+    "Pérez Zeledón","Buenos Aires","Osa",
+    "San Carlos Este","San Carlos Oeste","Zarcero","Guatuso","Río Cuarto",
+    "Limón","Siquires","Talamanca","Matina",
+    "Golfito","Coto Brus","Corredores","Puerto Jiménez",
+    "Upala","Los Chiles - Cutris - Pocosol","Sarapiquí","Colorado","Pococí","Guacimo",
+]
+
+def _sa_key():
+    try:
+        sa = st.secrets["gcp_service_account"]
+        return sa.get("client_email","") + "|" + sa.get("project_id","")
+    except Exception:
+        return ""
+
+@st.cache_resource(show_spinner=False)
+def _get_ws_cached(sheet_id: str, sheet_name: str, sa_key: str):
+    if "gcp_service_account" not in st.secrets:
+        raise RuntimeError("Falta el bloque [gcp_service_account] en .streamlit/secrets.toml")
+    gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
+    sh = gc.open_by_key(sheet_id)
+
+    # Obtiene/crea la pestaña
+    try:
+        ws = sh.worksheet(sheet_name)
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet(title=sheet_name, rows=2000, cols=len(HEADER))
+        ws.update("A1:H1", [HEADER])
+        try: ws.freeze(rows=1)
+        except: pass
+
+    # Migración automática: si aún existen columnas viejas (id/created_at), se eliminan A y B.
+    try:
+        first_row = [h.strip().lower() for h in ws.row_values(1)]
+        if len(first_row) >= 2 and first_row[0] == "id" and first_row[1] == "created_at":
+            ws.delete_columns(1, 2)  # borra A..B
+    except Exception:
+        pass
+
+    # Asegura encabezado exacto
+    first_row = [h.strip().lower() for h in ws.row_values(1)]
+    if first_row != HEADER:
+        ws.update("A1:H1", [HEADER])
+        try: ws.freeze(rows=1)
+        except: pass
+
+    return ws
+
+def _get_ws():
+    return _get_ws_cached(SHEET_ID, SHEET_NAME, _sa_key())
 
 def init_db():
-    with get_conn() as conn:
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA synchronous=NORMAL;")
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS asistencia(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-            nombre TEXT, cedula TEXT, institucion TEXT,
-            cargo TEXT, telefono TEXT,
-            genero TEXT, sexo TEXT, edad TEXT
-        );
-        """)
+    _get_ws()  # Garantiza existencia y encabezado/migración
 
-def insert_row(row):
-    with get_conn() as conn:
-        conn.execute("""INSERT INTO asistencia
-            (nombre, cedula, institucion, cargo, telefono, genero, sexo, edad)
-            VALUES (?,?,?,?,?,?,?,?)""",
-            (row["Nombre"], row["Cédula de Identidad"], row["Delegación"],
-             row["Cargo"], row["Teléfono"], row["Género"], row["Sexo"], row["Rango de Edad"])
-        )
+def _now_local_str():
+    try:
+        tz = ZoneInfo("America/Costa_Rica")
+        return datetime.now(tz).strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return datetime.now().strftime("%Y-%m-%d %H:%M")
 
-def fetch_all_df(include_id=True):
-    with get_conn() as conn:
-        df = pd.read_sql_query("""
-            SELECT id,
-                   nombre  AS 'Nombre',
-                   cedula  AS 'Cédula de Identidad',
-                   institucion AS 'Delegación',
-                   cargo   AS 'Cargo',
-                   telefono AS 'Teléfono',
-                   genero  AS 'Género',
-                   sexo    AS 'Sexo',
-                   edad    AS 'Rango de Edad'
-            FROM asistencia
-            ORDER BY id ASC
-        """, conn)
-    if not df.empty:
-        df.insert(0, "Nº", range(1, len(df)+1))
-        if not include_id:
-            df = df.drop(columns=["id"])
-    else:
+# ---------- CRUD ----------
+def insert_row(row: dict):
+    ws = _get_ws()
+    telefono = row.get("Teléfono","")
+    if telefono and not str(telefono).startswith("'"):
+        telefono = "'" + str(telefono)
+
+    payload = [
+        row.get("Nombre",""),
+        row.get("Cédula de Identidad",""),
+        row.get("Delegación",""),
+        row.get("Cargo",""),
+        telefono,
+        row.get("Género",""),
+        row.get("Sexo",""),
+        row.get("Rango de Edad",""),
+    ]
+    ws.append_row(payload, value_input_option="USER_ENTERED")
+
+def fetch_all_df(include_rownum=True) -> pd.DataFrame:
+    """Lee todo y añade 'rownum' (número de fila real en el Sheet) para editar/borrar."""
+    ws = _get_ws()
+    values = ws.get_all_values()
+    if len(values) < 2:
         cols = ["Nº","Nombre","Cédula de Identidad","Delegación","Cargo","Teléfono","Género","Sexo","Rango de Edad"]
-        if include_id: cols.insert(1, "id")
-        df = pd.DataFrame(columns=cols)
+        if include_rownum: cols.insert(1, "rownum")
+        return pd.DataFrame(columns=cols)
+
+    header = [h.strip().lower() for h in values[0]]
+    data_rows = values[1:]
+
+    name_map = {
+        "nombre":"Nombre",
+        "cedula":"Cédula de Identidad",
+        "delegacion":"Delegación",
+        "cargo":"Cargo",
+        "telefono":"Teléfono",
+        "genero":"Género",
+        "sexo":"Sexo",
+        "edad":"Rango de Edad",
+    }
+
+    records = []
+    for idx, row in enumerate(data_rows, start=2):  # fila 2 es la primera de datos
+        rec = {}
+        for j, key in enumerate(header):
+            if key in name_map:
+                rec[name_map[key]] = row[j] if j < len(row) else ""
+        rec["rownum"] = idx
+        records.append(rec)
+
+    df = pd.DataFrame(records)
+    if df.empty:
+        cols = ["Nº","Nombre","Cédula de Identidad","Delegación","Cargo","Teléfono","Género","Sexo","Rango de Edad"]
+        if include_rownum: cols.insert(1, "rownum")
+        return pd.DataFrame(columns=cols)
+
+    cols_order = ["rownum","Nombre","Cédula de Identidad","Delegación","Cargo","Teléfono","Género","Sexo","Rango de Edad"]
+    df = df[[c for c in cols_order if c in df.columns]]
+
+    df.insert(0, "Nº", range(1, len(df)+1))
+    if not include_rownum and "rownum" in df.columns:
+        df = df.drop(columns=["rownum"])
     return df
 
-def update_row_by_id(row_id:int, row:dict):
-    with get_conn() as conn:
-        conn.execute("""
-            UPDATE asistencia
-               SET nombre=?, cedula=?, institucion=?, cargo=?, telefono=?, genero=?, sexo=?, edad=?
-             WHERE id=?""",
-            (row["Nombre"], row["Cédula de Identidad"], row["Delegación"],
-             row["Cargo"], row["Teléfono"], row["Género"], row["Sexo"], row["Rango de Edad"], row_id)
-        )
+def update_row_by_rownum(rownum:int, row:dict):
+    ws = _get_ws()
+    payload = [
+        row.get("Nombre",""),
+        row.get("Cédula de Identidad",""),
+        row.get("Delegación",""),
+        row.get("Cargo",""),
+        row.get("Teléfono",""),
+        row.get("Género",""),
+        row.get("Sexo",""),
+        row.get("Rango de Edad",""),
+    ]
+    ws.update(f"A{rownum}:H{rownum}", [payload], value_input_option="USER_ENTERED")
 
-def delete_rows_by_ids(ids):
-    if not ids: return
-    with get_conn() as conn:
-        q = ",".join("?" for _ in ids)
-        conn.execute(f"DELETE FROM asistencia WHERE id IN ({q})", ids)
+def delete_rows_by_rownums(rownums: List[int]):
+    if not rownums:
+        return
+    ws = _get_ws()
+    for r in sorted(rownums, reverse=True):
+        ws.delete_rows(r)
 
 def delete_all_rows():
-    with get_conn() as conn:
-        conn.execute("DELETE FROM asistencia;")
+    ws = _get_ws()
+    used_rows = len(ws.get_all_values())
+    if used_rows >= 2:
+        ws.batch_clear([f"A2:H{used_rows}"])
 
-init_db()
+# Inicializa backend (si falla, muestra error claro y detiene)
+try:
+    init_db()
+except Exception:
+    st.error("Error conectando a Google Sheets. Verifica permisos y secrets.")
+    st.stop()
 
 # ---------- Login admin en la barra lateral ----------
 if "is_admin" not in st.session_state:
@@ -115,7 +224,11 @@ with st.form("form_asistencia_publico", clear_on_submit=True):
     c1, c2, c3 = st.columns([1.2, 1, 1])
     nombre      = c1.text_input("Nombre")
     cedula      = c2.text_input("Cédula de Identidad")
-    institucion = c3.text_input("Delegación")  # ← antes: Institución
+
+    # Select en vez de texto libre para Delegación
+    opciones_deleg = ["— Selecciona una delegación —"] + DELEGACIONES
+    sel_deleg = c3.selectbox("Delegación", opciones_deleg, index=0)
+    institucion = "" if sel_deleg == opciones_deleg[0] else sel_deleg
 
     c4, c5 = st.columns([1, 1])
     cargo    = c4.text_input("Cargo")
@@ -146,7 +259,7 @@ with st.form("form_asistencia_publico", clear_on_submit=True):
             st.success("Registro guardado.")
 
 st.markdown("### 📥 Registros recibidos")
-df_pub = fetch_all_df(include_id=False)
+df_pub = fetch_all_df(include_rownum=False)
 if not df_pub.empty:
     st.dataframe(
         df_pub[["Nº","Nombre","Cédula de Identidad","Delegación","Cargo","Teléfono","Género","Sexo","Rango de Edad"]],
@@ -160,8 +273,23 @@ if st.session_state.is_admin:
     st.markdown("---")
     st.markdown("# 🛠️ Panel del Administrador")
 
-    # Encabezado para Excel
-    st.markdown("### 🧾 Datos de encabezado (Excel)")
+    # ==== Filtro por Delegación ====
+    df_all = fetch_all_df(include_rownum=True)
+    if df_all.empty:
+        st.info("Aún no hay registros guardados.")
+        st.stop()
+
+    delegs_existentes = sorted([d for d in df_all["Delegación"].dropna().unique() if str(d).strip()], key=str.casefold)
+    filtro_opts = ["(Todas)"] + delegs_existentes
+    sel_filtro = st.selectbox("Filtrar por Delegación", filtro_opts, index=0)
+
+    if sel_filtro == "(Todas)":
+        df_view = df_all.copy().reset_index(drop=True)
+    else:
+        df_view = df_all[df_all["Delegación"] == sel_filtro].reset_index(drop=True)
+
+    # Encabezado para Excel / PDF
+    st.markdown("### 🧾 Datos de encabezado (Excel / PDF)")
     col1, col2 = st.columns([1,1])
     with col1:
         fecha_evento = st.date_input("Fecha", value=date.today())
@@ -170,20 +298,19 @@ if st.session_state.is_admin:
     with col2:
         hora_inicio = st.time_input("Hora Inicio", value=time(9,0))
         hora_fin = st.time_input("Hora Finalización", value=time(12,10))
-        delegacion = st.text_input("Dirección / Delegación Policial", value="")
+        delegacion_hdr = st.text_input("Dirección / Delegación Policial", value=("" if sel_filtro == "(Todas)" else sel_filtro))
+        firmante_nombre = st.text_input("Nombre de quien firma (opcional)", value="")
 
-    st.markdown("### 📝 Anotaciones y Acuerdos (para el Excel)")
+    st.markdown("### 📝 Anotaciones y Acuerdos (para el Excel/PDF)")
     a_col, b_col = st.columns(2)
     anotaciones = a_col.text_area("Anotaciones Generales", height=220, placeholder="Escribe las anotaciones generales…")
     acuerdos    = b_col.text_area("Acuerdos", height=220, placeholder="Escribe los acuerdos…")
 
     st.markdown("### 👥 Registros y edición")
-    df_all = fetch_all_df(include_id=True)
-
-    if df_all.empty:
-        st.info("Aún no hay registros guardados.")
+    if df_view.empty:
+        st.info("No hay registros para la delegación seleccionada.")
     else:
-        editable = df_all.copy()
+        editable = df_view.copy()
         editable["Seleccionar"] = False
 
         edited = st.data_editor(
@@ -211,38 +338,46 @@ if st.session_state.is_admin:
         if btn_save:
             changes = 0
             for idx in edited.index:
-                if idx >= len(df_all): continue
-                row_orig = df_all.loc[idx]
-                row_new = edited.loc[idx]
+                if idx >= len(df_view):
+                    continue
+                row_orig = df_view.loc[idx]
+                row_new  = edited.loc[idx]
                 fields = ["Nombre","Cédula de Identidad","Delegación","Cargo","Teléfono","Género","Sexo","Rango de Edad"]
                 if any(str(row_orig[f]) != str(row_new[f]) for f in fields):
-                    update_row_by_id(int(row_orig["id"]), {f: row_new[f] for f in fields})
+                    update_row_by_rownum(int(row_orig["rownum"]), {f: row_new[f] for f in fields})
                     changes += 1
             st.success(f"Se guardaron {changes} cambio(s).") if changes else st.info("No hay cambios para guardar.")
-            if changes: st.rerun()
+            if changes:
+                st.rerun()
 
         if btn_delete:
             idx_sel = edited.index[edited["Seleccionar"] == True].tolist()
-            ids = df_all.iloc[idx_sel]["id"].tolist()
-            if ids:
-                delete_rows_by_ids(ids); st.success(f"Eliminadas {len(ids)} fila(s)."); st.rerun()
+            rownums = df_view.iloc[idx_sel]["rownum"].tolist()
+            if rownums:
+                delete_rows_by_rownums(rownums)
+                st.success(f"Eliminadas {len(rownums)} fila(s).")
+                st.rerun()
             else:
                 st.info("No hay filas seleccionadas para eliminar.")
 
         if btn_clear:
             if confirm_all:
-                delete_all_rows(); st.success("Se vaciaron todos los registros."); st.rerun()
+                delete_all_rows()
+                st.success("Se vaciaron todos los registros.")
+                st.rerun()
             else:
                 st.warning("Marca 'Confirmar vaciado total' para continuar.")
 
     # ===== Excel en UNA HOJA =====
-    st.markdown("### ⬇️ Excel oficial (una sola hoja)")
+    st.markdown("### ⬇️ Descargas")
+    # Conjunto para exportar: SIEMPRE el filtrado actual
+    df_for_export = df_view.drop(columns=["Nº","rownum"]) if not df_view.empty else df_view
 
-
+    # ---------- EXCEL ----------
     def build_excel_oficial_single(
         fecha: date, lugar: str, hora_ini: time, hora_fin: time,
         estrategia: str, delegacion_hdr: str, rows_df: pd.DataFrame,
-        anotaciones_txt: str, acuerdos_txt: str
+        anotaciones_txt: str, acuerdos_txt: str, firmante: str
     ) -> bytes:
         try:
             from openpyxl import Workbook
@@ -309,25 +444,7 @@ if st.session_state.is_admin:
         ws.row_dimensions[5].height = 18
         ws.row_dimensions[6].height = 14
 
-        # Logos (ligeramente grandes, dentro del marco)
-        try:
-            if _Path("logo_izq.png").exists():
-                img = XLImage("logo_izq.png")
-                target_h = 72
-                ratio = target_h / img.height
-                img.height = target_h
-                img.width  = int(img.width * ratio)
-                ws.add_image(img, "D3")
-
-            if _Path("logo_der.png").exists():
-                img2 = XLImage("logo_der.png")
-                target_h2 = 72
-                ratio2 = target_h2 / img2.height
-                img2.height = target_h2
-                img2.width  = int(img2.width * ratio2)
-                ws.add_image(img2, "O3")
-        except Exception:
-            pass
+        # (Logos opcionales omitidos)
 
         ws.merge_cells("B3:S3"); ws["B3"].value = "Modelo de Gestión Policial de Fuerza Pública"; ws["B3"].alignment=center; ws["B3"].font=h1_font
         ws.merge_cells("B4:S4"); ws["B4"].value = "Lista de Asistencia & Minuta"; ws["B4"].alignment=center; ws["B4"].font=h1_font
@@ -357,23 +474,22 @@ if st.session_state.is_admin:
         # Actividad
         ws.merge_cells(start_row=8, start_column=10, end_row=9, end_column=19)
         ws["J8"].value = "ACTIVIDAD: Reunión Virtual de Seguimiento de líneas de acción, acciones estratégicas, indicadores y metas."
-        ws["J8"].alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+        ws["J8"].alignment = left
         outline_box(8, 10, 9, 19)
 
-        # Delegación Policial
+        # Delegación Policial (alineado a la IZQUIERDA)
         ws.merge_cells(start_row=9, start_column=2, end_row=9, end_column=3)
         ws.merge_cells(start_row=9, start_column=4, end_row=9, end_column=9)
         ws["B9"].value = "Dirección / Delegación Policial:"; ws["B9"].alignment = left
-        ws["D9"].value = delegacion_hdr; ws["D9"].alignment = Alignment(horizontal="center")
+        ws["D9"].value = delegacion_hdr; ws["D9"].alignment = left
         box_all(9, 2, 9, 3); box_all(9, 4, 9, 9)
 
         # Encabezado de la tabla
         ws["B10"].value = ""
-        ws["B10"].alignment = right
         ws.merge_cells("C10:E11"); ws["C10"].value = "Nombre"
 
         ws["F10"].value = "Cédula de Identidad"
-        ws["G10"].value = "Delegación"  # ← antes: Institución
+        ws["G10"].value = "Delegación"
         ws["H10"].value = "Cargo"
         ws["I10"].value = "Teléfono"
         ws.merge_cells("J10:L10"); ws["J10"].value = "Género"
@@ -398,7 +514,7 @@ if st.session_state.is_admin:
 
         ws.freeze_panes = "A12"
 
-        # Filas de asistencia
+        # Filas
         start_row = 12
         for i, (_, row) in enumerate(rows_df.iterrows()):
             r = start_row + i
@@ -410,7 +526,7 @@ if st.session_state.is_admin:
             ws[f"C{r}"].alignment = Alignment(wrap_text=True, horizontal="left", vertical="top")
 
             ws[f"F{r}"].value = str(row.get("Cédula de Identidad",""))
-            ws[f"G{r}"].value = str(row.get("Delegación",""))  # ← cambio
+            ws[f"G{r}"].value = str(row.get("Delegación",""))
             ws[f"H{r}"].value = str(row.get("Cargo",""))
             ws[f"I{r}"].value = str(row.get("Teléfono",""))
 
@@ -437,7 +553,7 @@ if st.session_state.is_admin:
             for c in range(2, 20):
                 ws.cell(row=r, column=c).border = border_all
 
-        # Anotaciones / Acuerdos (bajos)
+        # Anotaciones / Acuerdos
         last_data_row = start_row + len(rows_df) - 1 if len(rows_df) > 0 else 11
         notes_top = max(25, last_data_row + 2)
         notes_height = 14
@@ -449,8 +565,9 @@ if st.session_state.is_admin:
         ws[f"B{notes_top}"].font = th_font; ws[f"L{notes_top}"].font = th_font
         ws[f"B{notes_top}"].fill = celda_fill; ws[f"L{notes_top}"].fill = celda_fill
 
-        outline_box(notes_top+1, 2, notes_top+notes_height, 10)
-        outline_box(notes_top+1, 12, notes_top+notes_height, 19)
+        def outbox(r1, c1, r2, c2): outline_box(r1, c1, r2, c2)
+        outbox(notes_top+1, 2, notes_top+notes_height, 10)
+        outbox(notes_top+1, 12, notes_top+notes_height, 19)
 
         ws.merge_cells(start_row=notes_top+1, start_column=2, end_row=notes_top+notes_height, end_column=10)
         ws[f"B{notes_top+1}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
@@ -460,59 +577,182 @@ if st.session_state.is_admin:
         ws[f"L{notes_top+1}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
         if acuerdos_txt.strip(): ws[f"L{notes_top+1}"].value = acuerdos_txt.strip()
 
-        # Pie
+        # Pie con firma
         row_pie = notes_top + notes_height + 2
-        for r in range(row_pie, row_pie + 8):
-            for c in range(2, 20):
-                ws.cell(row=r, column=c).border = Border()
-
         ws.merge_cells(start_row=row_pie, start_column=2, end_row=row_pie, end_column=10)
         ws[f"B{row_pie}"].value = f"Se Finaliza la Reunión a:   {hora_fin.strftime('%H:%M')}"
         ws[f"B{row_pie}"].alignment = left
 
         row_firma = row_pie + 3
         thin_line = Side(style="thin", color="000000")
-        sig_c1, sig_c2 = 4, 10  # D..J
+        sig_c1, sig_c2 = 4, 10  # D..J (bajo la línea)
         ws.merge_cells(start_row=row_firma, start_column=sig_c1, end_row=row_firma, end_column=sig_c2)
         for c in range(sig_c1, sig_c2 + 1):
             ws.cell(row=row_firma, column=c).border = Border(bottom=thin_line)
 
         from openpyxl.utils import get_column_letter
         ws.merge_cells(start_row=row_firma+1, start_column=sig_c1, end_row=row_firma+1, end_column=sig_c2)
-        ws[f"{get_column_letter(sig_c1)}{row_firma+1}"].value = "Nombre Completo y Firma"
+        texto_firma = firmante.strip() if firmante.strip() else "Nombre Completo y Firma"
+        ws[f"{get_column_letter(sig_c1)}{row_firma+1}"].value = texto_firma
         ws[f"{get_column_letter(sig_c1)}{row_firma+1}"].alignment = Alignment(horizontal="center", wrap_text=False)
 
-        ws.merge_cells(start_row=row_firma+3, start_column=2, end_row=row_firma+3, end_column=10)
-        ws[f"B{row_firma+3}"].value = "Cargo:"
-        ws[f"B{row_firma+3}"].alignment = left
-
-        ws.merge_cells(start_row=row_firma+5, start_column=12, end_row=row_firma+5, end_column=19)
-        ws[f"L{row_firma+5}"].value = "Sello Policial"
-        ws[f"L{row_firma+5}"].alignment = Alignment(horizontal="right")
-
         ws.protection.sheet = True
-        ws.protection.formatColumns = False
-        ws.protection.formatRows = False
         ws.protection.selectLockedCells = True
         ws.protection.selectUnlockedCells = True
 
         bio = BytesIO(); wb.save(bio); return bio.getvalue()
 
-    df_for_excel = fetch_all_df(include_id=False)
-    datos = df_for_excel.drop(columns=["Nº"]) if not df_for_excel.empty else df_for_excel
-    if st.button("📥 Generar y descargar Excel oficial", use_container_width=True, type="primary"):
-        xls_bytes = build_excel_oficial_single(
-            fecha_evento, lugar, hora_inicio, hora_fin, estrategia, delegacion, datos,
-            anotaciones, acuerdos
-        )
-        if xls_bytes:
-            st.download_button(
-                "⬇️ Descargar Excel (una sola hoja)",
-                data=xls_bytes,
-                file_name=f"Lista_Asistencia_Oficial_{date.today():%Y%m%d}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
+    # ---------- PDF (A4 horizontal, una hoja) ----------
+    def build_pdf_oficial_single(
+        fecha: date, lugar: str, hora_ini: time, hora_fin: time,
+        estrategia: str, delegacion_hdr: str, rows_df: pd.DataFrame,
+        anotaciones_txt: str, acuerdos_txt: str, firmante: str
+    ) -> bytes:
+        try:
+            from reportlab.lib.pagesizes import A4, landscape
+            from reportlab.lib import colors
+            from reportlab.pdfgen import canvas
+            from reportlab.platypus import Table, TableStyle
+        except Exception:
+            st.error("Falta 'reportlab' en requirements.txt")
+            return b""
+
+        buf = BytesIO()
+        page_w, page_h = landscape(A4)
+        c = canvas.Canvas(buf, pagesize=(page_w, page_h))
+
+        margin = 28
+        x0, y0 = margin, margin
+        width, height = page_w - 2*margin, page_h - 2*margin
+
+        # Banda superior
+        c.setFillColorRGB(0.12, 0.23, 0.45)  # azul
+        c.rect(x0, y0 + height - 18, width, 18, fill=1, stroke=0)
+        c.setFillColor(colors.black)
+
+        # Encabezados de texto
+        MESES_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto",
+                    "septiembre","octubre","noviembre","diciembre"]
+        mes_es = MESES_ES[fecha.month-1]
+
+        y = y0 + height - 35
+        c.setFont("Helvetica-Bold", 16)
+        c.drawCentredString(x0 + width/2, y + 24, "Lista de Asistencia & Minuta")
+        c.setFont("Helvetica-Bold", 12)
+        c.drawCentredString(x0 + width/2, y + 42, "Modelo de Gestión Policial de Fuerza Pública")
+        c.setFont("Helvetica", 10)
+
+        c.drawString(x0, y, f"Fecha: {fecha.day} {mes_es} {fecha.year}")
+        c.drawString(x0 + 250, y, f"Lugar: {lugar}")
+        c.drawRightString(x0 + width/2 + 150, y, f"Hora Inicio: {hora_ini.strftime('%H:%M')}")
+        c.drawRightString(x0 + width, y, f"Hora Finalización: {hora_fin.strftime('%H:%M')}")
+
+        y -= 16
+        c.drawString(x0, y, "Estrategia o Programa:")
+        c.drawString(x0 + 140, y, estrategia)
+
+        y -= 16
+        c.drawString(x0, y, "Dirección / Delegación Policial:")
+        c.drawString(x0 + 180, y, delegacion_hdr)
+
+        # Tabla
+        data = []
+        head = [
+            "Nº","Nombre","Cédula de Identidad","Delegación","Cargo","Teléfono",
+            "F","M","LGBTIQ+","H","M","I","18-35","36-64","65+","FIRMA"
+        ]
+        data.append(head)
+
+        for i, (_, row) in enumerate(rows_df.iterrows(), start=1):
+            g = (row.get("Género","") or "").strip()
+            s = (row.get("Sexo","") or "").strip()
+            e = (row.get("Rango de Edad","") or "").strip()
+            gf = "X" if g == "F" else ""
+            gm = "X" if g == "M" else ""
+            gl = "X" if g == "LGBTIQ+" else ""
+            sh = "X" if s == "H" else ""
+            sm = "X" if s == "M" else ""
+            si = "X" if s == "I" else ""
+            r1 = "X" if e.startswith("18") else ""
+            r2 = "X" if e.startswith("36") else ""
+            r3 = "X" if e.startswith("65") else ""
+            data.append([
+                i,
+                str(row.get("Nombre","")),
+                str(row.get("Cédula de Identidad","")),
+                str(row.get("Delegación","")),
+                str(row.get("Cargo","")),
+                str(row.get("Teléfono","")),
+                gf, gm, gl, sh, sm, si, r1, r2, r3, "Virtual"
+            ])
+
+        # Anchos de columnas (suma aprox. al ancho disponible)
+        col_widths = [
+            24, 140, 90, 100, 90, 70, 16, 16, 40, 16, 16, 16, 40, 40, 32, 50
+        ]
+        table_top = y - 18
+        table = Table(data, colWidths=col_widths, repeatRows=1)
+        style = TableStyle([
+            ("GRID",(0,0),(-1,-1),0.5,colors.black),
+            ("BACKGROUND",(0,0),(-1,0),colors.HexColor("#D9D9D9")),
+            ("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),
+            ("ALIGN",(0,0),(0,-1),"RIGHT"),
+            ("ALIGN",(1,0),(5,0),"CENTER"),
+            ("ALIGN",(6,0),(-1,0),"CENTER"),
+            ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+        ])
+        table.setStyle(style)
+        w_table = sum(col_widths)
+        # Dibujar tabla
+        table.wrapOn(c, w_table, 400)
+        table.drawOn(c, x0, table_top - 16 - 18*len(data))  # ubicación aproximada dinámica
+
+        # Firma inferior
+        # Línea
+        y_sig = y0 + 40
+        c.line(x0 + 120, y_sig, x0 + width - 120, y_sig)
+        # Nombre
+        texto_firma = (firmante_nombre.strip() if (firmante_nombre := firmante) else "").strip()
+        texto_firma = texto_firma if texto_firma else "Nombre Completo y Firma"
+        c.setFont("Helvetica", 11)
+        c.drawCentredString(x0 + width/2, y_sig - 14, texto_firma)
+
+        c.showPage()
+        c.save()
+        return buf.getvalue()
+
+    # Botones de descarga
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("📥 Generar Excel oficial", use_container_width=True, type="primary"):
+            xls_bytes = build_excel_oficial_single(
+                fecha_evento, lugar, hora_inicio, hora_fin, estrategia, delegacion_hdr,
+                df_for_export, anotaciones, acuerdos, firmante_nombre
             )
+            if xls_bytes:
+                st.download_button(
+                    "⬇️ Descargar Excel (una sola hoja)",
+                    data=xls_bytes,
+                    file_name=f"Lista_Asistencia_Oficial_{date.today():%Y%m%d}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+    with c2:
+        if st.button("🖨️ Generar PDF (A4 horizontal)", use_container_width=True):
+            pdf_bytes = build_pdf_oficial_single(
+                fecha_evento, lugar, hora_inicio, hora_fin, estrategia, delegacion_hdr,
+                df_for_export, anotaciones, acuerdos, firmante_nombre
+            )
+            if pdf_bytes:
+                st.download_button(
+                    "⬇️ Descargar PDF",
+                    data=pdf_bytes,
+                    file_name=f"Lista_Asistencia_Oficial_{date.today():%Y%m%d}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+
+
 
 
 
