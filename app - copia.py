@@ -16,8 +16,8 @@ try:
 except Exception:
     ZoneInfo = None
 
-# Tu hoja (Asistencia Rivera)
-SHEET_ID = "1lhREae4X-RcbeMmjSpT3CRJZo5enizyHmZxazzDGl-4"
+# Tu hoja (Asistencia Rivera)  <<< ID CORREGIDO >>>
+SHEET_ID = "1lhREae4X-RcbeMmjSpT3CRJZo5enizyHmZxazzDGI-4"
 SHEET_NAME = "Hoja 1"
 
 # Estructura final (sin id/created_at)
@@ -368,7 +368,7 @@ if st.session_state.is_admin:
             else:
                 st.warning("Marca 'Confirmar vaciado total' para continuar.")
 
-    # ===== Excel en UNA HOJA =====
+    # ===== Descargas =====
     st.markdown("### ⬇️ Descargas")
     # Conjunto para exportar: SIEMPRE el filtrado actual
     df_for_export = df_view.drop(columns=["Nº","rownum"]) if not df_view.empty else df_view
@@ -565,9 +565,8 @@ if st.session_state.is_admin:
         ws[f"B{notes_top}"].font = th_font; ws[f"L{notes_top}"].font = th_font
         ws[f"B{notes_top}"].fill = celda_fill; ws[f"L{notes_top}"].fill = celda_fill
 
-        def outbox(r1, c1, r2, c2): outline_box(r1, c1, r2, c2)
-        outbox(notes_top+1, 2, notes_top+notes_height, 10)
-        outbox(notes_top+1, 12, notes_top+notes_height, 19)
+        outline_box(notes_top+1, 2, notes_top+notes_height, 10)
+        outline_box(notes_top+1, 12, notes_top+notes_height, 19)
 
         ws.merge_cells(start_row=notes_top+1, start_column=2, end_row=notes_top+notes_height, end_column=10)
         ws[f"B{notes_top+1}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
@@ -592,7 +591,7 @@ if st.session_state.is_admin:
 
         from openpyxl.utils import get_column_letter
         ws.merge_cells(start_row=row_firma+1, start_column=sig_c1, end_row=row_firma+1, end_column=sig_c2)
-        texto_firma = firmante.strip() if firmante.strip() else "Nombre Completo y Firma"
+        texto_firma = firmante.strip() if (firmante and firmante.strip()) else "Nombre Completo y Firma"
         ws[f"{get_column_letter(sig_c1)}{row_firma+1}"].value = texto_firma
         ws[f"{get_column_letter(sig_c1)}{row_firma+1}"].alignment = Alignment(horizontal="center", wrap_text=False)
 
@@ -703,17 +702,14 @@ if st.session_state.is_admin:
         ])
         table.setStyle(style)
         w_table = sum(col_widths)
-        # Dibujar tabla
+        # Dibujar tabla (posición simple; si hay muchas filas, la tabla se contrae hacia arriba)
         table.wrapOn(c, w_table, 400)
-        table.drawOn(c, x0, table_top - 16 - 18*len(data))  # ubicación aproximada dinámica
+        table.drawOn(c, x0, table_top - 16 - 18*len(data))
 
         # Firma inferior
-        # Línea
         y_sig = y0 + 40
         c.line(x0 + 120, y_sig, x0 + width - 120, y_sig)
-        # Nombre
-        texto_firma = (firmante_nombre.strip() if (firmante_nombre := firmante) else "").strip()
-        texto_firma = texto_firma if texto_firma else "Nombre Completo y Firma"
+        texto_firma = firmante.strip() if (firmante and firmante.strip()) else "Nombre Completo y Firma"
         c.setFont("Helvetica", 11)
         c.drawCentredString(x0 + width/2, y_sig - 14, texto_firma)
 
@@ -751,9 +747,6 @@ if st.session_state.is_admin:
                     mime="application/pdf",
                     use_container_width=True
                 )
-
-
-
 
 
 
