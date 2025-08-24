@@ -16,8 +16,8 @@ try:
 except Exception:
     ZoneInfo = None
 
-# ⚠️ CONEXIÓN A LA NUEVA HOJA
-SHEET_ID = "1lhREae4X-RcbeMmjSpT3CRJZo5enizyHmZxazzDGI-4"   # <— tu nuevo spreadsheet
+# ⚠️ CONEXIÓN A LA HOJA (la que pediste)
+SHEET_ID = "1lhREae4X-RcbeMmjSpT3CRJZo5enizyHmZxazzDGI-4"
 SHEET_NAME = "Hoja 1"
 
 # Estructura final (8 columnas)
@@ -265,20 +265,24 @@ if st.session_state.is_admin:
     st.markdown("---")
     st.markdown("# 🛠️ Panel del Administrador")
 
-    # Filtro por Delegación
     df_all = fetch_all_df(include_rownum=True)
     if df_all.empty:
         st.info("Aún no hay registros guardados.")
         st.stop()
 
+    # === Multiselección de delegaciones ===
     delegs_existentes = sorted([d for d in df_all["Delegación"].dropna().unique() if str(d).strip()], key=str.casefold)
-    filtro_opts = ["(Todas)"] + delegs_existentes
-    sel_filtro = st.selectbox("Filtrar por Delegación", filtro_opts, index=0)
+    sel_filtros = st.multiselect(
+        "Filtrar por Delegación",
+        options=delegs_existentes,
+        default=[],
+        help="Vacío = todas. Puedes elegir varias delegaciones."
+    )
 
-    if sel_filtro == "(Todas)":
+    if not sel_filtros:
         df_view = df_all.copy().reset_index(drop=True)
     else:
-        df_view = df_all[df_all["Delegación"] == sel_filtro].reset_index(drop=True)
+        df_view = df_all[df_all["Delegación"].isin(sel_filtros)].reset_index(drop=True)
 
     # Encabezado Excel
     st.markdown("### 🧾 Datos de encabezado (Excel)")
@@ -291,8 +295,8 @@ if st.session_state.is_admin:
         hora_inicio = st.time_input("Hora Inicio", value=time(9,0))
         hora_fin = st.time_input("Hora Finalización", value=time(12,10))
 
-        if sel_filtro != "(Todas)":
-            delegacion_sugerida = sel_filtro
+        if len(sel_filtros) == 1:
+            delegacion_sugerida = sel_filtros[0]
         else:
             vals = [str(x).strip() for x in df_view["Delegación"].tolist() if str(x).strip()]
             delegacion_sugerida = (max(set(vals), key=vals.count) if vals else "")
@@ -307,7 +311,7 @@ if st.session_state.is_admin:
 
     st.markdown("### 👥 Registros y edición")
     if df_view.empty:
-        st.info("No hay registros para la delegación seleccionada.")
+        st.info("No hay registros para el filtro seleccionado.")
     else:
         editable = df_view.copy()
         editable["Seleccionar"] = False
@@ -481,7 +485,8 @@ if st.session_state.is_admin:
         ws.merge_cells("B3:S3"); ws["B3"].value = "Modelo de Gestión Policial de Fuerza Pública"; ws["B3"].alignment=center; ws["B3"].font=h1_font
         ws.merge_cells("B4:S4"); ws["B4"].value = "Lista de Asistencia & Minuta"; ws["B4"].alignment=center; ws["B4"].font=h1_font
         ws.merge_cells("B5:S5"); ws["B5"].value = "Consecutivo:"; ws["B5"].alignment=center; ws["B5"].font=title_font
-        ws.merge_cells("B6:S6"); from openpyxl.styles import PatternFill; ws["B6"].fill = PatternFill("solid", fgColor="1F3B73")
+        from openpyxl.styles import PatternFill
+        ws.merge_cells("B6:S6"); ws["B6"].fill = PatternFill("solid", fgColor="1F3B73")
         outline_box(1, 2, 6, 19)
 
         # Encabezado superior
@@ -563,9 +568,8 @@ if st.session_state.is_admin:
             ws[f"G{r}"].value = str(row.get("Delegación",""))
             ws[f"H{r}"].value = str(row.get("Cargo",""))
             ws[f"I{r}"].value = str(row.get("Teléfono",""))
-
             for col in ["F","G","H","I"]:
-                ws[f"{col}{r}"].alignment = left  # wrap + vertical top
+                ws[f"{col}{r}"].alignment = left
 
             # Marcas X
             for col in ["J","K","L","M","N","O","P","Q","R"]:
