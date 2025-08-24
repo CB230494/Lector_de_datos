@@ -383,8 +383,11 @@ if st.session_state.is_admin:
             from openpyxl import Workbook
             from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
             from openpyxl.utils import get_column_letter
+            # >>> IMPORTS PARA LOGOS <<<
+            from openpyxl.drawing.image import Image as XLImage
+            from pathlib import Path as _Path
         except Exception:
-            st.error("Falta 'openpyxl' en requirements.txt")
+            st.error("Falta 'openpyxl' (y Pillow para imágenes) en requirements.txt")
             return b""
 
         azul_banda = "1F3B73"
@@ -441,6 +444,28 @@ if st.session_state.is_admin:
         ws.row_dimensions[4].height = 22
         ws.row_dimensions[5].height = 18
         ws.row_dimensions[6].height = 14
+
+        # >>> LOGOS (opcional): coloca 'logo_izq.png' y 'logo_der.png' en el directorio del app <<<
+        try:
+            p1 = _Path("logo_izq.png")
+            if p1.exists():
+                img = XLImage(str(p1))
+                target_h = 72
+                ratio = target_h / img.height
+                img.height = target_h
+                img.width  = int(img.width * ratio)
+                ws.add_image(img, "D3")  # posición aprox
+
+            p2 = _Path("logo_der.png")
+            if p2.exists():
+                img2 = XLImage(str(p2))
+                target_h2 = 72
+                ratio2 = target_h2 / img2.height
+                img2.height = target_h2
+                img2.width  = int(img2.width * ratio2)
+                ws.add_image(img2, "O3")  # posición aprox
+        except Exception:
+            pass
 
         # Títulos
         ws.merge_cells("B3:S3"); ws["B3"].value = "Modelo de Gestión Policial de Fuerza Pública"; ws["B3"].alignment=center; ws["B3"].font=h1_font
@@ -624,6 +649,8 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+
+
 
 
 
