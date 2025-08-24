@@ -16,7 +16,7 @@ try:
 except Exception:
     ZoneInfo = None
 
-# ID de tu Google Sheet (Asistencia Rivera)
+# ⚠️ Conexión que ya tienes (Asistencia Rivera)
 SHEET_ID = "1lhREae4X-RcbeMmjSpT3CRJZo5enizyHmZxazzDGI-4"
 SHEET_NAME = "Hoja 1"
 
@@ -383,7 +383,7 @@ if st.session_state.is_admin:
             from openpyxl import Workbook
             from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
             from openpyxl.utils import get_column_letter
-            # >>> IMPORTS PARA LOGOS <<<
+            # IMPORTS PARA LOGOS (opcional)
             from openpyxl.drawing.image import Image as XLImage
             from pathlib import Path as _Path
         except Exception:
@@ -445,7 +445,7 @@ if st.session_state.is_admin:
         ws.row_dimensions[5].height = 18
         ws.row_dimensions[6].height = 14
 
-        # >>> LOGOS (opcional): coloca 'logo_izq.png' y 'logo_der.png' en el directorio del app <<<
+        # LOGOS (si existen)
         try:
             p1 = _Path("logo_izq.png")
             if p1.exists():
@@ -454,7 +454,7 @@ if st.session_state.is_admin:
                 ratio = target_h / img.height
                 img.height = target_h
                 img.width  = int(img.width * ratio)
-                ws.add_image(img, "D3")  # posición aprox
+                ws.add_image(img, "D3")
 
             p2 = _Path("logo_der.png")
             if p2.exists():
@@ -463,7 +463,7 @@ if st.session_state.is_admin:
                 ratio2 = target_h2 / img2.height
                 img2.height = target_h2
                 img2.width  = int(img2.width * ratio2)
-                ws.add_image(img2, "O3")  # posición aprox
+                ws.add_image(img2, "O3")
         except Exception:
             pass
 
@@ -473,7 +473,7 @@ if st.session_state.is_admin:
         ws.merge_cells("B5:S5"); ws["B5"].value = "Consecutivo:"; ws["B5"].alignment=center; ws["B5"].font=title_font
         ws.merge_cells("B6:S6"); ws["B6"].fill = PatternFill("solid", fgColor=azul_banda)
 
-        outline_box(1, 2, 6, 19)  # marco superior
+        outline_box(1, 2, 6, 19)
 
         # Encabezado superior
         ws.merge_cells(start_row=7, start_column=2, end_row=7, end_column=4)
@@ -628,6 +628,15 @@ if st.session_state.is_admin:
         ws.merge_cells(start_row=row_firma+1, start_column=sig_c1, end_row=row_firma+1, end_column=sig_c2)
         ws[f"{col}{row_firma+1}"].value = "Nombre"
         ws[f"{col}{row_firma+1}"].alignment = Alignment(horizontal="center", wrap_text=False)
+
+        # Conservado: "Cargo:" a la izquierda y "Sello Policial" a la derecha
+        ws.merge_cells(start_row=row_firma+3, start_column=2, end_row=row_firma+3, end_column=10)
+        ws[f"B{row_firma+3}"].value = "Cargo:"
+        ws[f"B{row_firma+3}"].alignment = left
+
+        ws.merge_cells(start_row=row_firma+5, start_column=12, end_row=row_firma+5, end_column=19)
+        ws[f"L{row_firma+5}"].value = "Sello Policial"
+        ws[f"L{row_firma+5}"].alignment = Alignment(horizontal="right", vertical="center")
 
         ws.protection.sheet = True
         ws.protection.selectLockedCells = True
