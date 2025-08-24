@@ -16,7 +16,7 @@ try:
 except Exception:
     ZoneInfo = None
 
-# ⚠️ ID de la hoja (ajústalo si cambias de spreadsheet)
+# ⚠️ CONEXIÓN A LA HOJA (actualizado a la hoja que indicaste)
 SHEET_ID = "1Xkj3lIoOT83VSBuQfN8eJkv2lT4EZEiG3jWhGri7LZU"
 SHEET_NAME = "Hoja 1"
 
@@ -30,7 +30,7 @@ DELEGACIONES = [
     "Zapote / San Francisco de dos Rios","Pavas","Uruca / Mata Redonda",
     "Curridabat","Montes de Oca","Goicoechea","Moravia","Tibás","Coronado",
     "Desamparados Norte","Desamparados Sur","Aserrí","Acosta","Alajuelita",
-    "Escazu","Santa Ana","Mora","Puriscal","Turrubares",
+    "Escazu","Santa Ana","Mora","Puriscal","Turrabares",
     "Alajuela Sur","Alajuela Norte","San Ramón","Grecia","San Mateo",
     "Atenas","Naranjo","Palmares","Poas","Orotina","Sarchí",
     "Cartago","Paraíso","La Unión","Jiménez","Turrialba","Alvarado","Oreamuno","El Guarco",
@@ -265,20 +265,24 @@ if st.session_state.is_admin:
     st.markdown("---")
     st.markdown("# 🛠️ Panel del Administrador")
 
-    # Filtro por Delegación
     df_all = fetch_all_df(include_rownum=True)
     if df_all.empty:
         st.info("Aún no hay registros guardados.")
         st.stop()
 
+    # === Multiselección de delegaciones ===
     delegs_existentes = sorted([d for d in df_all["Delegación"].dropna().unique() if str(d).strip()], key=str.casefold)
-    filtro_opts = ["(Todas)"] + delegs_existentes
-    sel_filtro = st.selectbox("Filtrar por Delegación", filtro_opts, index=0)
+    sel_filtros = st.multiselect(
+        "Filtrar por Delegación",
+        options=delegs_existentes,
+        default=[],
+        help="Vacío = todas. Puedes elegir varias delegaciones."
+    )
 
-    if sel_filtro == "(Todas)":
+    if not sel_filtros:
         df_view = df_all.copy().reset_index(drop=True)
     else:
-        df_view = df_all[df_all["Delegación"] == sel_filtro].reset_index(drop=True)
+        df_view = df_all[df_all["Delegación"].isin(sel_filtros)].reset_index(drop=True)
 
     # Encabezado Excel
     st.markdown("### 🧾 Datos de encabezado (Excel)")
@@ -290,14 +294,8 @@ if st.session_state.is_admin:
     with col2:
         hora_inicio = st.time_input("Hora Inicio", value=time(9,0))
         hora_fin = st.time_input("Hora Finalización", value=time(12,10))
-
-        if sel_filtro != "(Todas)":
-            delegacion_sugerida = sel_filtro
-        else:
-            vals = [str(x).strip() for x in df_view["Delegación"].tolist() if str(x).strip()]
-            delegacion_sugerida = (max(set(vals), key=vals.count) if vals else "")
-
-        delegacion_hdr = st.text_input("Dirección / Delegación Policial", value=delegacion_sugerida)
+        # 🔹 SIEMPRE EN BLANCO (sin autollenado)
+        delegacion_hdr = st.text_input("Dirección / Delegación Policial", value="")
         firmante_nombre = st.text_input("Nombre de quien firma (opcional)", value="")
 
     st.markdown("### 📝 Anotaciones y Acuerdos (para el Excel)")
@@ -307,7 +305,7 @@ if st.session_state.is_admin:
 
     st.markdown("### 👥 Registros y edición")
     if df_view.empty:
-        st.info("No hay registros para la delegación seleccionada.")
+        st.info("No hay registros para el filtro seleccionado.")
     else:
         editable = df_view.copy()
         editable["Seleccionar"] = False
@@ -387,15 +385,7 @@ if st.session_state.is_admin:
             st.error("Falta 'openpyxl' (y Pillow) en requirements.txt")
             return b""
 
-        # Si no viene delegación, la inferimos de los datos visibles
-        if not (delegacion_hdr or "").strip():
-            try:
-                vals = rows_df["Delegación"].astype(str).str.strip()
-                mode_val = vals[vals != ""].mode()
-                delegacion_hdr = mode_val.iloc[0] if not mode_val.empty else ""
-            except Exception:
-                delegacion_hdr = ""
-
+        # 🔸 SIN AUTOINFERENCIA: usamos exactamente lo que venga en delegacion_hdr (puede ser vacío)
         azul_banda = "1F3B73"
         gris_head  = "D9D9D9"
         celda_fill = PatternFill("solid", fgColor=gris_head)
@@ -404,7 +394,7 @@ if st.session_state.is_admin:
         h1_font    = Font(bold=True, size=14)
         center     = Alignment(horizontal="center", vertical="center", wrap_text=True)
         right      = Alignment(horizontal="right",  vertical="center")
-        left       = Alignment(horizontal="left",   vertical="top", wrap_text=True)   # ← vertical top para multi-línea
+        left       = Alignment(horizontal="left",   vertical="top", wrap_text=True)
         thin       = Side(style="thin", color="000000")
         border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
 
@@ -444,7 +434,7 @@ if st.session_state.is_admin:
         # Columnas (ensanchar Cargo y Teléfono)
         widths = {
             "A": 2,  "B": 6,  "C": 26, "D": 22, "E": 22,
-            "F": 18, "G": 24, "H": 28, "I": 20,  # ← H e I más anchas
+            "F": 18, "G": 24, "H": 28, "I": 20,
             "J": 6,  "K": 6,  "L": 10, "M": 6,  "N": 6, "O": 6,
             "P": 14, "Q": 14, "R": 14, "S": 16
         }
@@ -481,7 +471,7 @@ if st.session_state.is_admin:
         ws.merge_cells("B3:S3"); ws["B3"].value = "Modelo de Gestión Policial de Fuerza Pública"; ws["B3"].alignment=center; ws["B3"].font=h1_font
         ws.merge_cells("B4:S4"); ws["B4"].value = "Lista de Asistencia & Minuta"; ws["B4"].alignment=center; ws["B4"].font=h1_font
         ws.merge_cells("B5:S5"); ws["B5"].value = "Consecutivo:"; ws["B5"].alignment=center; ws["B5"].font=title_font
-        ws.merge_cells("B6:S6"); from openpyxl.styles import PatternFill; ws["B6"].fill = PatternFill("solid", fgColor="1F3B73")
+        ws.merge_cells("B6:S6"); ws["B6"].fill = PatternFill("solid", fgColor="1F3B73")
         outline_box(1, 2, 6, 19)
 
         # Encabezado superior
@@ -508,11 +498,12 @@ if st.session_state.is_admin:
         ws["J8"].alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
         outline_box(8, 10, 9, 19)
 
-        # Delegación
+        # Delegación (tal cual venga del input, puede ser vacío)
         ws.merge_cells(start_row=9, start_column=2, end_row=9, end_column=3)
         ws.merge_cells(start_row=9, start_column=4, end_row=9, end_column=9)
         ws["B9"].value = "Dirección / Delegación Policial:"; ws["B9"].alignment = left
-        ws["D9"].value = delegacion_hdr; ws["D9"].alignment = left
+        ws["D9"].value = delegacion_hdr
+        ws["D9"].alignment = left
         box_all(9, 2, 9, 3); box_all(9, 4, 9, 9)
 
         # Encabezado tabla
@@ -558,14 +549,13 @@ if st.session_state.is_admin:
             ws[f"C{r}"].value = str(row.get("Nombre",""))
             ws[f"C{r}"].alignment = left
 
-            # Cédula / Delegación / Cargo / Teléfono (con wrap para evitar que se “meta” en la col. de al lado)
+            # Cédula / Delegación / Cargo / Teléfono
             ws[f"F{r}"].value = str(row.get("Cédula de Identidad",""))
             ws[f"G{r}"].value = str(row.get("Delegación",""))
             ws[f"H{r}"].value = str(row.get("Cargo",""))
             ws[f"I{r}"].value = str(row.get("Teléfono",""))
-
             for col in ["F","G","H","I"]:
-                ws[f"{col}{r}"].alignment = left  # wrap + vertical top
+                ws[f"{col}{r}"].alignment = left
 
             # Marcas X
             for col in ["J","K","L","M","N","O","P","Q","R"]:
