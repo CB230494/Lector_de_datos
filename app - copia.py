@@ -294,14 +294,8 @@ if st.session_state.is_admin:
     with col2:
         hora_inicio = st.time_input("Hora Inicio", value=time(9,0))
         hora_fin = st.time_input("Hora Finalización", value=time(12,10))
-
-        if len(sel_filtros) == 1:
-            delegacion_sugerida = sel_filtros[0]
-        else:
-            vals = [str(x).strip() for x in df_view["Delegación"].tolist() if str(x).strip()]
-            delegacion_sugerida = (max(set(vals), key=vals.count) if vals else "")
-
-        delegacion_hdr = st.text_input("Dirección / Delegación Policial", value=delegacion_sugerida)
+        # 🔹 SIEMPRE EN BLANCO (sin autollenado)
+        delegacion_hdr = st.text_input("Dirección / Delegación Policial", value="")
         firmante_nombre = st.text_input("Nombre de quien firma (opcional)", value="")
 
     st.markdown("### 📝 Anotaciones y Acuerdos (para el Excel)")
@@ -391,15 +385,7 @@ if st.session_state.is_admin:
             st.error("Falta 'openpyxl' (y Pillow) en requirements.txt")
             return b""
 
-        # Si no viene delegación, la inferimos de los datos visibles
-        if not (delegacion_hdr or "").strip():
-            try:
-                vals = rows_df["Delegación"].astype(str).str.strip()
-                mode_val = vals[vals != ""].mode()
-                delegacion_hdr = mode_val.iloc[0] if not mode_val.empty else ""
-            except Exception:
-                delegacion_hdr = ""
-
+        # 🔸 SIN AUTOINFERENCIA: usamos exactamente lo que venga en delegacion_hdr (puede ser vacío)
         azul_banda = "1F3B73"
         gris_head  = "D9D9D9"
         celda_fill = PatternFill("solid", fgColor=gris_head)
@@ -485,7 +471,6 @@ if st.session_state.is_admin:
         ws.merge_cells("B3:S3"); ws["B3"].value = "Modelo de Gestión Policial de Fuerza Pública"; ws["B3"].alignment=center; ws["B3"].font=h1_font
         ws.merge_cells("B4:S4"); ws["B4"].value = "Lista de Asistencia & Minuta"; ws["B4"].alignment=center; ws["B4"].font=h1_font
         ws.merge_cells("B5:S5"); ws["B5"].value = "Consecutivo:"; ws["B5"].alignment=center; ws["B5"].font=title_font
-        from openpyxl.styles import PatternFill
         ws.merge_cells("B6:S6"); ws["B6"].fill = PatternFill("solid", fgColor="1F3B73")
         outline_box(1, 2, 6, 19)
 
@@ -513,11 +498,12 @@ if st.session_state.is_admin:
         ws["J8"].alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
         outline_box(8, 10, 9, 19)
 
-        # Delegación
+        # Delegación (tal cual venga del input, puede ser vacío)
         ws.merge_cells(start_row=9, start_column=2, end_row=9, end_column=3)
         ws.merge_cells(start_row=9, start_column=4, end_row=9, end_column=9)
         ws["B9"].value = "Dirección / Delegación Policial:"; ws["B9"].alignment = left
-        ws["D9"].value = delegacion_hdr; ws["D9"].alignment = left
+        ws["D9"].value = delegacion_hdr
+        ws["D9"].alignment = left
         box_all(9, 2, 9, 3); box_all(9, 4, 9, 9)
 
         # Encabezado tabla
@@ -563,7 +549,7 @@ if st.session_state.is_admin:
             ws[f"C{r}"].value = str(row.get("Nombre",""))
             ws[f"C{r}"].alignment = left
 
-            # Cédula / Delegación / Cargo / Teléfono (wrap para que no invadan columnas vecinas)
+            # Cédula / Delegación / Cargo / Teléfono
             ws[f"F{r}"].value = str(row.get("Cédula de Identidad",""))
             ws[f"G{r}"].value = str(row.get("Delegación",""))
             ws[f"H{r}"].value = str(row.get("Cargo",""))
@@ -668,6 +654,8 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+
+
 
 
 
