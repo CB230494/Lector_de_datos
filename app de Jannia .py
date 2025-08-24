@@ -16,7 +16,7 @@ try:
 except Exception:
     ZoneInfo = None
 
-# Tu hoja:
+# ⚠️ Mantengo la misma hoja que ya usabas:
 SHEET_ID = "1Xkj3lIoOT83VSBuQfN8eJkv2lT4EZEiG3jWhGri7LZU"
 SHEET_NAME = "Hoja 1"
 
@@ -300,6 +300,13 @@ if st.session_state.is_admin:
         hora_fin = st.time_input("Hora Finalización", value=time(12,10))
         delegacion_hdr = st.text_input("Dirección / Delegación Policial", value=("" if sel_filtro == "(Todas)" else sel_filtro))
 
+    # 👤 Nuevo: nombre del firmante SIEMPRE visible (debajo del bloque de encabezado)
+    firmante_nombre = st.text_input(
+        "👤 Nombre de quien firma (opcional)",
+        value="",
+        help="Este nombre se imprimirá sobre la línea de firma en el Excel."
+    )
+
     st.markdown("### 📝 Anotaciones y Acuerdos (para el Excel)")
     a_col, b_col = st.columns(2)
     anotaciones = a_col.text_area("Anotaciones Generales", height=220, placeholder="Escribe las anotaciones generales…")
@@ -373,13 +380,12 @@ if st.session_state.is_admin:
     def build_excel_oficial_single(
         fecha: date, lugar: str, hora_ini: time, hora_fin: time,
         estrategia: str, delegacion_hdr: str, rows_df: pd.DataFrame,
-        anotaciones_txt: str, acuerdos_txt: str
+        anotaciones_txt: str, acuerdos_txt: str, firmante: str
     ) -> bytes:
         try:
             from openpyxl import Workbook
             from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
             from openpyxl.drawing.image import Image as XLImage
-            from openpyxl.utils import get_column_letter
             from pathlib import Path as _Path
         except Exception:
             st.error("Falta 'openpyxl' en requirements.txt")
@@ -440,7 +446,7 @@ if st.session_state.is_admin:
         ws.row_dimensions[5].height = 18
         ws.row_dimensions[6].height = 14
 
-        # Logos (opcional)
+        # Logos (opcional, si los archivos existen en el mismo directorio)
         try:
             if _Path("logo_izq.png").exists():
                 img = XLImage("logo_izq.png")
@@ -491,19 +497,15 @@ if st.session_state.is_admin:
         ws["J8"].alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
         outline_box(8, 10, 9, 19)
 
-        # Delegación Policial
+        # Delegación Policial (izquierda)
         ws.merge_cells(start_row=9, start_column=2, end_row=9, end_column=3)
         ws.merge_cells(start_row=9, start_column=4, end_row=9, end_column=9)
         ws["B9"].value = "Dirección / Delegación Policial:"; ws["B9"].alignment = Alignment(horizontal="left", vertical="center")
         ws["D9"].value = delegacion_hdr
-        # >>> CAMBIO SOLICITADO: alineado a la izquierda <<<
         ws["D9"].alignment = Alignment(horizontal="left", vertical="center")
         box_all(9, 2, 9, 3); box_all(9, 4, 9, 9)
 
         # Encabezado de la tabla
-        th_font = Font(bold=True)
-        celda_fill = PatternFill("solid", fgColor="D9D9D9")
-
         ws["B10"].value = ""
         ws.merge_cells("C10:E11"); ws["C10"].value = "Nombre"
         ws["F10"].value = "Cédula de Identidad"
@@ -527,8 +529,6 @@ if st.session_state.is_admin:
         for cell in ["J11","K11","L11","M11","N11","O11","P11","Q11","R11"]:
             ws[cell].font = th_font; ws[cell].alignment = Alignment(horizontal="center", vertical="center"); ws[cell].fill = celda_fill
 
-        thin = Side(style="thin", color="000000")
-        border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
         for r in range(10, 12):
             for c in range(2, 20):
                 ws.cell(row=r, column=c).border = border_all
@@ -540,7 +540,7 @@ if st.session_state.is_admin:
         for i, (_, row) in enumerate(rows_df.iterrows()):
             r = start_row + i
             ws[f"B{r}"].value = i + 1
-            ws[f"B{r}"].alignment = Alignment(horizontal="right", vertical="center")
+            ws[f"B{r}"].alignment = right
 
             ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=5)
             ws[f"C{r}"].value = str(row.get("Nombre",""))
@@ -581,28 +581,10 @@ if st.session_state.is_admin:
 
         ws.merge_cells(start_row=notes_top, start_column=2, end_row=notes_top, end_column=10)
         ws.merge_cells(start_row=notes_top, start_column=12, end_row=notes_top, end_column=19)
-        ws[f"B{notes_top}"].value = "Anotaciones Generales."; ws[f"B{notes_top}"].alignment = Alignment(horizontal="center", vertical="center")
-        ws[f"L{notes_top}"].value = "Acuerdos."; ws[f"L{notes_top}"].alignment = Alignment(horizontal="center", vertical="center")
-        ws[f"B{notes_top}"].fill = PatternFill("solid", fgColor="D9D9D9")
-        ws[f"L{notes_top}"].fill = PatternFill("solid", fgColor="D9D9D9")
+        ws[f"B{notes_top}"].value = "Anotaciones Generales."; ws[f"B{notes_top}"].alignment = center
+        ws[f"L{notes_top}"].value = "Acuerdos."; ws[f"L{notes_top}"].alignment = center
+        ws[f"B{notes_top}"].fill = celda_fill; ws[f"L{notes_top}"].fill = celda_fill
         ws[f"B{notes_top}"].font = th_font; ws[f"L{notes_top}"].font = th_font
-
-        def outline_box(r1, c1, r2, c2):
-            for c in range(c1, c2+1):
-                t = ws.cell(row=r1, column=c)
-                t.border = Border(top=thin, left=t.border.left, right=t.border.right, bottom=t.border.bottom)
-                b = ws.cell(row=r2, column=c)
-                b.border = Border(bottom=thin, left=b.border.left, right=b.border.right, top=b.border.top)
-            for r in range(r1, r2+1):
-                l = ws.cell(row=r, column=c1)
-                l.border = Border(left=thin, top=l.border.top, right=l.border.right, bottom=l.border.bottom)
-                rgt = ws.cell(row=r, column=c2)
-                rgt.border = Border(right=thin, top=rgt.border.top, left=rgt.border.left, bottom=rgt.border.bottom)
-
-        def box_all(r1, c1, r2, c2):
-            for r in range(r1, r2+1):
-                for c in range(c1, c2+1):
-                    ws.cell(row=r, column=c).border = border_all
 
         outline_box(notes_top+1, 2, notes_top+notes_height, 10)
         outline_box(notes_top+1, 12, notes_top+notes_height, 19)
@@ -615,35 +597,34 @@ if st.session_state.is_admin:
         ws[f"L{notes_top+1}"].alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
         if acuerdos_txt.strip(): ws[f"L{notes_top+1}"].value = acuerdos_txt.strip()
 
-        # Pie
+        # Pie con firma
         row_pie = notes_top + notes_height + 2
-        for r in range(row_pie, row_pie + 8):
-            for c in range(2, 20):
-                ws.cell(row=r, column=c).border = Border()
-
         ws.merge_cells(start_row=row_pie, start_column=2, end_row=row_pie, end_column=10)
         ws[f"B{row_pie}"].value = f"Se Finaliza la Reunión a:   {hora_fin.strftime('%H:%M')}"
-        ws[f"B{row_pie}"].alignment = Alignment(horizontal="left", vertical="center")
+        ws[f"B{row_pie}"].alignment = left
 
         row_firma = row_pie + 3
         thin_line = Side(style="thin", color="000000")
         sig_c1, sig_c2 = 4, 10  # D..J
+
+        # Línea de firma
         ws.merge_cells(start_row=row_firma, start_column=sig_c1, end_row=row_firma, end_column=sig_c2)
         for c in range(sig_c1, sig_c2 + 1):
             ws.cell(row=row_firma, column=c).border = Border(bottom=thin_line)
 
         from openpyxl.utils import get_column_letter
+        col = get_column_letter(sig_c1)
+        ws.row_dimensions[row_firma].height = 24  # acerca el texto a la línea
+
+        # Nombre SOBRE la línea (alineado abajo)
+        texto_firma = (firmante or "").strip()
+        ws[f"{col}{row_firma}"].value = texto_firma
+        ws[f"{col}{row_firma}"].alignment = Alignment(horizontal="center", vertical="bottom", wrap_text=False)
+
+        # Etiqueta debajo
         ws.merge_cells(start_row=row_firma+1, start_column=sig_c1, end_row=row_firma+1, end_column=sig_c2)
-        ws[f"{get_column_letter(sig_c1)}{row_firma+1}"].value = "Nombre Completo y Firma"
-        ws[f"{get_column_letter(sig_c1)}{row_firma+1}"].alignment = Alignment(horizontal="center", wrap_text=False)
-
-        ws.merge_cells(start_row=row_firma+3, start_column=2, end_row=row_firma+3, end_column=10)
-        ws[f"B{row_firma+3}"].value = "Cargo:"
-        ws[f"B{row_firma+3}"].alignment = Alignment(horizontal="left", vertical="center")
-
-        ws.merge_cells(start_row=row_firma+5, start_column=12, end_row=row_firma+5, end_column=19)
-        ws[f"L{row_firma+5}"].value = "Sello Policial"
-        ws[f"L{row_firma+5}"].alignment = Alignment(horizontal="right", vertical="center")
+        ws[f"{col}{row_firma+1}"].value = "Nombre"
+        ws[f"{col}{row_firma+1}"].alignment = Alignment(horizontal="center", wrap_text=False)
 
         ws.protection.sheet = True
         ws.protection.formatColumns = False
@@ -658,7 +639,7 @@ if st.session_state.is_admin:
     if st.button("📥 Generar y descargar Excel oficial", use_container_width=True, type="primary"):
         xls_bytes = build_excel_oficial_single(
             fecha_evento, lugar, hora_inicio, hora_fin, estrategia, delegacion_hdr, df_for_excel,
-            anotaciones, acuerdos
+            anotaciones, acuerdos, firmante_nombre  # 👈 pasa el firmante
         )
         if xls_bytes:
             st.download_button(
@@ -668,4 +649,3 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
-
