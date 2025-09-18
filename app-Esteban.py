@@ -359,4 +359,296 @@ if st.session_state.is_admin:
                 st.info("No hay filas seleccionadas para eliminar.")
 
         if btn_clear:
+            if confirm_all:
+                delete_all_rows()
+                st.success("Se vaciaron todos los registros.")
+                st.rerun()
+            else:
+                st.warning("Marca 'Confirmar vaciado total' para continuar.")
+
+    # ========= Excel oficial =========
+    st.markdown("### ⬇️ Descarga")
+
+    df_for_export = df_view.drop(columns=["Nº","rownum"]) if not df_view.empty else df_view
+
+    def build_excel_oficial_single(
+        fecha: date, lugar: str, hora_ini: time, hora_fin: time,
+        estrategia: str, delegacion_hdr: str, rows_df: pd.DataFrame,
+        anotaciones_txt: str, acuerdos_txt: str, firmante: str
+    ) -> bytes:
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+            from openpyxl.utils import get_column_letter
+            from openpyxl.drawing.image import Image as XLImage
+            from pathlib import Path as _Path
+        except Exception:
+            st.error("Falta 'openpyxl' (y Pillow) en requirements.txt")
+            return b""
+
+        gris_head  = "D9D9D9"
+        celda_fill = PatternFill("solid", fgColor=gris_head)
+        th_font    = Font(bold=True)
+        title_font = Font(bold=True, size=12)
+        h1_font    = Font(bold=True, size=14)
+        center     = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        right      = Alignment(horizontal="right",  vertical="center")
+        left       = Alignment(horizontal="left",   vertical="top", wrap_text=True)
+        thin       = Side(style="thin", color="000000")
+        border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        def outline_box(r1, c1, r2, c2):
+            for c in range(c1, c2+1):
+                t = ws.cell(row=r1, column=c)
+                t.border = Border(top=thin, left=t.border.left, right=t.border.right, bottom=t.border.bottom)
+                b = ws.cell(row=r2, column=c)
+                b.border = Border(bottom=thin, left=b.border.left, right=b.border.right, top=b.border.top)
+            for r in range(r1, r2+1):
+                l = ws.cell(row=r, column=c1)
+                l.border = Border(left=thin, top=l.border.top, right=l.border.right, bottom=l.border.bottom)
+                rgt = ws.cell(row=r, column=c2)
+                rgt.border = Border(right=thin, top=rgt.border.top, left=rgt.border.left, bottom=rgt.border.bottom)
+
+        def box_all(r1, c1, r2, c2):
+            for r in range(r1, r2+1):
+                for c in range(c1, c2+1):
+                    ws.cell(row=r, column=c).border = border_all
+
+        MESES_ES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto",
+                    "septiembre","octubre","noviembre","diciembre"]
+        mes_es = MESES_ES[fecha.month-1]
+
+        wb = Workbook()
+        ws = wb.active; ws.title = "Lista"
+        ws.sheet_view.showGridLines = False
+
+        # Página
+        ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
+        ws.page_setup.paperSize = ws.PAPERSIZE_A4
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
+        ws.page_margins.left = ws.page_margins.right = 0.3
+        ws.page_margins.top = ws.page_margins.bottom = 0.4
+
+        # Columnas
+        widths = {
+            "A": 2,  "B": 6,  "C": 26, "D": 22, "E": 22,
+            "F": 18, "G": 24, "H": 28, "I": 20,
+            "J": 6,  "K": 6,  "L": 10, "M": 6,  "N": 6, "O": 6,
+            "P": 14, "Q": 14, "R": 14, "S": 16
+        }
+        for col, w in widths.items():
+            ws.column_dimensions[col].width = w
+
+        # Alturas del encabezado
+        ws.row_dimensions[1].height = 8
+        ws.row_dimensions[3].height = 50
+        ws.row_dimensions[4].height = 22
+        ws.row_dimensions[5].height = 18
+        ws.row_dimensions[6].height = 14
+
+        # Logos (opcionales)
+        try:
+            if _Path("logo_izq.png").exists():
+                img = XLImage("logo_izq.png")
+                target_h = 72
+                ratio = target_h / img.height
+                img.height = target_h
+                img.width  = int(img.width * ratio)
+                ws.add_image(img, "D3")
+            if _Path("logo_der.png").exists():
+                img2 = XLImage("logo_der.png")
+                target_h2 = 72
+                ratio2 = target_h2 / img2.height
+                img2.height = target_h2
+                img2.width  = int(img2.width * ratio2)
+                ws.add_image(img2, "O3")
+        except Exception:
+            pass
+
+        # Títulos
+        ws.merge_cells("B3:S3"); ws["B3"].value = "Modelo de Gestión Policial de Fuerza Pública"; ws["B3"].alignment=center; ws["B3"].font=h1_font
+        ws.merge_cells("B4:S4"); ws["B4"].value = "Lista de Asistencia & Minuta"; ws["B4"].alignment=center; ws["B4"].font=h1_font
+        ws.merge_cells("B5:S5"); ws["B5"].value = "Consecutivo:"; ws["B5"].alignment=center; ws["B5"].font=title_font
+        ws.merge_cells("B6:S6"); ws["B6"].fill = PatternFill("solid", fgColor="1F3B73")
+        outline_box(1, 2, 6, 19)
+
+        # Encabezado superior
+        ws.merge_cells(start_row=7, start_column=2, end_row=7, end_column=4)
+        ws.merge_cells(start_row=7, start_column=5, end_row=7, end_column=9)
+        ws.merge_cells(start_row=7, start_column=10, end_row=7, end_column=15)
+        ws.merge_cells(start_row=7, start_column=16, end_row=7, end_column=19)
+        ws["B7"].value = f"Fecha: {fecha.day} {mes_es} {fecha.year}"; ws["B7"].font = title_font; ws["B7"].alignment = left
+        ws["E7"].value = f"Lugar:  {lugar}" if lugar else "Lugar: "; ws["E7"].font = title_font; ws["E7"].alignment = left
+        ws["J7"].value = f"Hora Inicio: {hora_ini.strftime('%H:%M')}"; ws["J7"].alignment = center
+        ws["P7"].value = f"Hora Finalización: {hora_fin.strftime('%H:%M')}"; ws["P7"].alignment = center
+        box_all(7, 2, 7, 4); box_all(7, 5, 7, 9); box_all(7, 10, 7, 15); box_all(7, 16, 7, 19)
+
+        # Estrategia
+        ws.merge_cells(start_row=8, start_column=2, end_row=8, end_column=3)
+        ws.merge_cells(start_row=8, start_column=4, end_row=8, end_column=9)
+        ws["B8"].value = "Estrategia o Programa:"; ws["B8"].alignment = left
+        ws["D8"].value = estrategia; ws["D8"].alignment = left
+        box_all(8, 2, 8, 3); box_all(8, 4, 8, 9)
+
+        # Actividad
+        ws.merge_cells(start_row=8, start_column=10, end_row=9, end_column=19)
+        ws["J8"].value = "ACTIVIDAD: Reunión Virtual de Seguimiento de líneas de acción, acciones estratégicas, indicadores y metas."
+        ws["J8"].alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+        outline_box(8, 10, 9, 19)
+
+        # Delegación (tal cual venga del input, puede ser vacío)
+        ws.merge_cells(start_row=9, start_column=2, end_row=9, end_column=3)
+        ws.merge_cells(start_row=9, start_column=4, end_row=9, end_column=9)
+        ws["B9"].value = "Dirección / Delegación Policial:"; ws["B9"].alignment = left
+        ws["D9"].value = delegacion_hdr
+        ws["D9"].alignment = left
+        box_all(9, 2, 9, 3); box_all(9, 4, 9, 9)
+
+        # Encabezado tabla
+        ws["B10"].value = ""
+        ws.merge_cells("C10:E11"); ws["C10"].value = "Nombre"
+
+        ws["F10"].value = "Cédula de Identidad"
+        ws["G10"].value = "Delegación"
+        ws["H10"].value = "Cargo"
+        ws["I10"].value = "Teléfono"
+        ws.merge_cells("J10:L10"); ws["J10"].value = "Género"
+        ws.merge_cells("M10:O10"); ws["M10"].value = "Sexo (Hombre, Mujer o Intersex)"
+        ws.merge_cells("P10:R10"); ws["P10"].value = "Rango de Edad"
+        ws["S10"].value = "FIRMA"
+
+        for rng in ["C10:E11","J10:L10","M10:O10","P10:R10"]:
+            c = ws[rng.split(":")[0]]
+            c.font = th_font; c.alignment = center; c.fill = celda_fill
+        for cell in ["F10","G10","H10","I10","S10"]:
+            ws[cell].font = th_font; ws[cell].alignment = center; ws[cell].fill = celda_fill
+
+        ws["J11"], ws["K11"], ws["L11"] = "F", "M", "LGBTIQ+"
+        ws["M11"], ws["N11"], ws["O11"] = "H", "M", "I"
+        ws["P11"], ws["Q11"], ws["R11"] = "18 a 35 años", "36 a 64 años", "65 años o más"
+        for cell in ["J11","K11","L11","M11","N11","O11","P11","Q11","R11"]:
+            ws[cell].font = th_font; ws[cell].alignment = center; ws[cell].fill = celda_fill
+
+        for r in range(10, 12):
+            for c in range(2, 20):
+                ws.cell(row=r, column=c).border = border_all
+
+        ws.freeze_panes = "A12"
+
+        # Filas
+        start_row = 12
+        for i, (_, row) in enumerate(rows_df.iterrows()):
+            r = start_row + i
+            ws[f"B{r}"].value = i + 1
+            ws[f"B{r}"].alignment = right
+
+            ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=5)
+            ws[f"C{r}"].value = str(row.get("Nombre",""))
+            ws[f"C{r}"].alignment = left
+
+            ws[f"F{r}"].value = str(row.get("Cédula de Identidad",""))
+            ws[f"G{r}"].value = str(row.get("Delegación",""))
+            ws[f"H{r}"].value = str(row.get("Cargo",""))
+            ws[f"I{r}"].value = str(row.get("Teléfono",""))
+            for col in ["F","G","H","I"]:
+                ws[f"{col}{r}"].alignment = left
+
+            for col in ["J","K","L","M","N","O","P","Q","R"]:
+                ws[f"{col}{r}"].value = ""
+
+            g = (row.get("Género","") or "").strip()
+            if g == "F": ws[f"J{r}"].value = "X"
+            elif g == "M": ws[f"K{r}"].value = "X"
+            elif g == "LGBTIQ+": ws[f"L{r}"].value = "X"
+
+            s = (row.get("Sexo","") or "").strip()
+            if s == "H": ws[f"M{r}"].value = "X"
+            elif s == "M": ws[f"N{r}"].value = "X"
+            elif s == "I": ws[f"O{r}"].value = "X"
+
+            e = (row.get("Rango de Edad","") or "").strip()
+            if e.startswith("18"): ws[f"P{r}"].value = "X"
+            elif e.startswith("36"): ws[f"Q{r}"].value = "X"
+            elif e.startswith("65"): ws[f"R{r}"].value = "X"
+
+            ws[f"S{r}"].value = "Virtual"
+
+            for c in range(2, 20):
+                ws.cell(row=r, column=c).border = border_all
+
+        # Anotaciones / Acuerdos
+        last_data_row = start_row + len(rows_df) - 1 if len(rows_df) > 0 else 11
+        notes_top = max(25, last_data_row + 2)
+        notes_height = 14
+
+        ws.merge_cells(start_row=notes_top, start_column=2, end_row=notes_top, end_column=10)
+        ws.merge_cells(start_row=notes_top, start_column=12, end_row=notes_top, end_column=19)
+        ws[f"B{notes_top}"].value = "Anotaciones Generales."; ws[f"B{notes_top}"].alignment = center
+        ws[f"L{notes_top}"].value = "Acuerdos."; ws[f"L{notes_top}"].alignment = center
+        ws[f"B{notes_top}"].font = th_font; ws[f"L{notes_top}"].font = th_font
+        ws[f"B{notes_top}"].fill = celda_fill; ws[f"L{notes_top}"].fill = celda_fill
+
+        outline_box(notes_top+1, 2, notes_top+notes_height, 10)
+        outline_box(notes_top+1, 12, notes_top+notes_height, 19)
+
+        ws.merge_cells(start_row=notes_top+1, start_column=2, end_row=notes_top+notes_height, end_column=10)
+        ws[f"B{notes_top+1}"].alignment = left
+        if anotaciones_txt.strip(): ws[f"B{notes_top+1}"].value = anotaciones_txt.strip()
+
+        ws.merge_cells(start_row=notes_top+1, start_column=12, end_row=notes_top+notes_height, end_column=19)
+        ws[f"L{notes_top+1}"].alignment = left
+        if acuerdos_txt.strip(): ws[f"L{notes_top+1}"].value = acuerdos_txt.strip()
+
+        # Pie / Firma
+        row_pie = notes_top + notes_height + 2
+        ws.merge_cells(start_row=row_pie, start_column=2, end_row=row_pie, end_column=10)
+        ws[f"B{row_pie}"].value = f"Se Finaliza la Reunión a:   {hora_fin.strftime('%H:%M')}"
+        ws[f"B{row_pie}"].alignment = left
+
+        row_firma = row_pie + 3
+        thin_line = Side(style="thin", color="000000")
+        sig_c1, sig_c2 = 4, 10  # D..J
+        ws.merge_cells(start_row=row_firma, start_column=sig_c1, end_row=row_firma, end_column=sig_c2)
+        for c in range(sig_c1, sig_c2 + 1):
+            ws.cell(row=row_firma, column=c).border = Border(bottom=thin_line)
+
+        col = get_column_letter(sig_c1)
+        ws.row_dimensions[row_firma].height = 24
+
+        ws[f"{col}{row_firma}"].value = (firmante or "").strip()
+        ws[f"{col}{row_firma}"].alignment = Alignment(horizontal="center", vertical="bottom")
+
+        ws.merge_cells(start_row=row_firma+1, start_column=sig_c1, end_row=row_firma+1, end_column=sig_c2)
+        ws[f"{col}{row_firma+1}"].value = "Nombre"
+        ws[f"{col}{row_firma+1}"].alignment = Alignment(horizontal="center")
+
+        ws.merge_cells(start_row=row_firma+3, start_column=2, end_row=row_firma+3, end_column=10)
+        ws[f"B{row_firma+3}"].value = "Cargo:"
+        ws[f"B{row_firma+3}"].alignment = left
+
+        ws.merge_cells(start_row=row_firma+5, start_column=12, end_row=row_firma+5, end_column=19)
+        ws[f"L{row_firma+5}"].value = "Sello Policial"
+        ws[f"L{row_firma+5}"].alignment = Alignment(horizontal="right", vertical="center")
+
+        ws.protection.sheet = True
+        ws.protection.selectLockedCells = True
+        ws.protection.selectUnlockedCells = True
+
+        bio = BytesIO(); wb.save(bio); return bio.getvalue()
+
+    if st.button("📥 Generar Excel oficial", use_container_width=True, type="primary"):
+        xls_bytes = build_excel_oficial_single(
+            fecha_evento, lugar, hora_inicio, hora_fin, estrategia, delegacion_hdr,
+            df_for_export, anotaciones, acuerdos, firmante_nombre
+        )
+        if xls_bytes:
+            st.download_button(
+                "⬇️ Descargar Excel (una sola hoja)",
+                data=xls_bytes,
+                file_name=f"Lista_Asistencia_Oficial_{date.today():%Y%m%d}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+
 
