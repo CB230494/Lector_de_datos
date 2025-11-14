@@ -26,24 +26,8 @@ HEADER = ["nombre","cedula","delegacion","cargo","telefono","genero","sexo","eda
 
 # Catálogo de delegaciones
 DELEGACIONES = [
-    "Estrategia Sembremos Seguridad",
-    "Carmen","Merced","Hospital","Catedral","San Sebastián","Hatillo",
-    "Zapote / San Francisco de dos Rios","Pavas","Uruca / Mata Redonda",
-    "Curridabat","Montes de Oca","Goicoechea","Moravia","Tibás","Coronado",
-    "Desamparados Norte","Desamparados Sur","Aserrí","Acosta","Alajuelita",
-    "Escazu","Santa Ana","Mora","Puriscal","Turrabares",
     "Alajuela Sur","Alajuela Norte","San Ramón","Grecia","San Mateo",
     "Atenas","Naranjo","Palmares","Poas","Orotina","Sarchí",
-    "Cartago","Paraíso","La Unión","Jiménez","Turrialba","Alvarado","Oreamuno","El Guarco",
-    "Tarrazú","Dota","León Cortéz",
-    "Guadalupe","Heredia","Barva","Santo Domingo","Santa Barbara","San Rafael","San Isidro","Belén","Flores","San Pablo",
-    "Liberia","Nicoya","Santa Cruz","Bagaces","Carrillo","Cañas","Abangares","Tilarán","Nandayure","Hojancha","La Cruz",
-    "Puntarenas","Esparza","Montes de Oro","Quepos","Parrita","Garabito","Paquera","Chomes",
-    "Pérez Zeledón","Buenos Aires","Osa",
-    "San Carlos Este","San Carlos Oeste","Zarcero","Guatuso","Río Cuarto",
-    "Limón","Siquires","Talamanca","Matina",
-    "Golfito","Coto Brus","Corredores","Puerto Jiménez",
-    "Upala","Los Chiles - Cutris - Pocosol","Sarapiquí","Colorado","Pococí","Guacimo",
 ]
 
 def _sa_key():
@@ -650,5 +634,6 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+
 
 
