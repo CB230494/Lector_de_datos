@@ -183,7 +183,7 @@ with st.sidebar:
     if not st.session_state.is_admin:
         pwd = st.text_input("Contraseña", type="password", placeholder="••••••••")
         if st.button("Ingresar"):
-            if pwd == "Sembremos23":
+            if pwd == "Region223":
                 st.session_state.is_admin = True
                 st.success("Acceso concedido.")
                 st.rerun()
@@ -634,6 +634,7 @@ if st.session_state.is_admin:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+
 
 
 
