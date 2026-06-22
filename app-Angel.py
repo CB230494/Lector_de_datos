@@ -1,6 +1,6 @@
 # =========================
 # 📋 Asistencia – Público + Admin
-# Con fecha/hora del dispositivo + servidor
+# Fecha/hora dispositivo + respaldo servidor
 # =========================
 
 import streamlit as st
@@ -20,7 +20,7 @@ except Exception:
 
 st.set_page_config(page_title="Asistencia – Registro y Admin", layout="wide")
 
-# ---------- Backend de datos: Google Sheets ----------
+# ---------- Google Sheets ----------
 
 SHEET_ID = "1vzGRJrlUzaCdhJAQBa6i94RE2QxnKqFvXpch9HF4TO8"
 SHEET_NAME = "Hoja 1"
@@ -68,6 +68,18 @@ def get_device_info():
     """)
     return data if isinstance(data, dict) else {}
 
+def get_safe_device_info(device_info):
+    if device_info:
+        return device_info
+
+    server_now = get_now_cr()
+    return {
+        "fecha": server_now.strftime("%d/%m/%Y"),
+        "hora": server_now.strftime("%H:%M:%S"),
+        "timestamp": server_now.isoformat(),
+        "zona": "No detectada - respaldo servidor"
+    }
+
 def _sa_key():
     try:
         sa = st.secrets["gcp_service_account"]
@@ -87,7 +99,7 @@ def _get_ws_cached(sheet_id: str, sheet_name: str, sa_key: str):
         ws = sh.worksheet(sheet_name)
     except gspread.WorksheetNotFound:
         ws = sh.add_worksheet(title=sheet_name, rows=2000, cols=len(HEADER))
-        ws.update(f"A1:P1", [HEADER])
+        ws.update("A1:P1", [HEADER])
         try:
             ws.freeze(rows=1)
         except Exception:
@@ -247,7 +259,6 @@ def update_row_by_rownum(rownum: int, row: dict):
 def delete_rows_by_rownums(rownums: List[int]):
     if not rownums:
         return
-
     ws = _get_ws()
     for r in sorted(rownums, reverse=True):
         ws.delete_rows(r)
@@ -258,7 +269,7 @@ def delete_all_rows():
     if used_rows >= 2:
         ws.batch_clear([f"A2:P{used_rows}"])
 
-# ---------- Inicializa backend ----------
+# ---------- Inicializar ----------
 
 try:
     init_db()
@@ -303,7 +314,10 @@ if device_info:
         f"({device_info.get('zona', '')})"
     )
 else:
-    st.warning("Cargando fecha y hora del dispositivo. Espera unos segundos antes de registrar.")
+    st.info(
+        "Fecha y hora del dispositivo en proceso de detección. "
+        "Si no carga, el sistema usará la hora del servidor como respaldo."
+    )
 
 st.markdown("### ➕ Agregar")
 
@@ -321,7 +335,6 @@ with st.form("form_asistencia_publico", clear_on_submit=True):
     cargo = c4.text_input("Cargo")
     telefono = c5.text_input("Teléfono")
 
-    st.markdown("#### ")
     gcol, scol, ecol = st.columns([1.1, 1.5, 1.5])
 
     genero = gcol.radio("Género", ["F", "M", "LGBTIQ+"], horizontal=True)
@@ -337,9 +350,9 @@ with st.form("form_asistencia_publico", clear_on_submit=True):
     if submitted:
         if not nombre.strip():
             st.warning("Ingresa al menos el nombre.")
-        elif not device_info:
-            st.warning("No se ha cargado la fecha y hora del dispositivo. Espera unos segundos e intenta de nuevo.")
         else:
+            device_final = get_safe_device_info(device_info)
+
             fila = {
                 "Nombre": nombre.strip(),
                 "Cédula de Identidad": cedula.strip(),
@@ -349,11 +362,15 @@ with st.form("form_asistencia_publico", clear_on_submit=True):
                 "Género": genero,
                 "Sexo": sexo,
                 "Rango de Edad": edad,
-                "_device": device_info
+                "_device": device_final
             }
 
             insert_row(fila)
-            st.success("Registro guardado con fecha y hora del dispositivo.")
+
+            if device_info:
+                st.success("Registro guardado con fecha y hora del dispositivo.")
+            else:
+                st.success("Registro guardado con fecha y hora del servidor como respaldo.")
 
 st.markdown("### 📥 Registros recibidos")
 
@@ -853,8 +870,9 @@ if st.session_state.is_admin:
         ws.merge_cells(start_row=evidencia_text_row, start_column=2, end_row=evidencia_text_row + 2, end_column=19)
         ws[f"B{evidencia_text_row}"].value = (
             "Los registros de asistencia fueron capturados mediante formulario electrónico. "
-            "El sistema almacena fecha y hora reportada por el dispositivo utilizado para el registro, "
-            "así como fecha y hora del servidor como mecanismo complementario de trazabilidad y control."
+            "El sistema almacena la fecha y hora reportada por el dispositivo utilizado para el registro. "
+            "En caso de no poder detectar dicha información, se utiliza la fecha y hora del servidor como respaldo técnico. "
+            "Adicionalmente, se conserva la fecha y hora del servidor como mecanismo complementario de trazabilidad y control."
         )
         ws[f"B{evidencia_text_row}"].alignment = left
         outline_box(evidencia_text_row, 2, evidencia_text_row + 2, 19)
